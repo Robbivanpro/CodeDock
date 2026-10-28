@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CodeDock.App/CodeDock.App.csproj" />
+    <Project Path="src/CodeDock.Core/CodeDock.Core.csproj" />
+    <Project Path="src/CodeDock.Infrastructure/CodeDock.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CodeDock.Core.Tests/CodeDock.Core.Tests.csproj" />
+    <Project Path="tests/CodeDock.Infrastructure.Tests/CodeDock.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

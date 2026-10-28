@@ -1,0 +1,111 @@
+using System.ComponentModel;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using CodeDock.App.ViewModels;
+using Microsoft.Extensions.Logging;
+
+namespace CodeDock.App.Views;
+
+public partial class MainWindow : Window
+{
+    private readonly ILogger<MainWindow> _logger;
+    private bool _shutdownCompleted;
+
+    public MainWindow(ILogger<MainWindow> logger)
+    {
+        _logger = logger;
+        InitializeComponent();
+    }
+
+    private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext;
+
+    private async void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_shutdownCompleted)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        IsEnabled = false;
+        try
+        {
+            await ViewModel.ShutdownAsync();
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Could not save all CodeDock data during shutdown");
+            MessageBox.Show(
+                $"CodeDock could not save all changes.\n\n{exception.Message}",
+                "CodeDock save error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _shutdownCompleted = true;
+            Close();
+        }
+    }
+
+    private async void OnProjectNameLostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: ProjectTabViewModel project })
+        {
+            await ViewModel.CommitProjectNameAsync(project);
+        }
+    }
+
+    private void OnProjectNameKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is TextBox textBox)
+        {
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape && sender is TextBox { DataContext: ProjectTabViewModel project })
+        {
+            project.RestoreName();
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
+    private void OnTabPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed && sender is TabItem { DataContext: ProjectTabViewModel project })
+        {
+            DragDrop.DoDragDrop((DependencyObject)sender, project, DragDropEffects.Move);
+        }
+    }
+
+    private async void OnTabDrop(object sender, DragEventArgs e)
+    {
+        if (sender is not TabItem { DataContext: ProjectTabViewModel target }
+            || e.Data.GetData(typeof(ProjectTabViewModel)) is not ProjectTabViewModel project)
+        {
+            return;
+        }
+
+        await ViewModel.MoveProjectAsync(project, target);
+        e.Handled = true;
+    }
+
+    private async void OnPreferredEnvironmentChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox { DataContext: ProjectTabViewModel project, IsLoaded: true })
+        {
+            await ViewModel.SetPreferredEnvironmentAsync(project);
+        }
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            ViewModel.SelectNextProject(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
+            e.Handled = true;
+        }
+    }
+}
