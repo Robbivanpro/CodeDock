@@ -6,6 +6,8 @@ public interface IUserDialogService
 {
     bool ConfirmRemove(string projectName);
 
+    bool ConfirmCloseIdeAndTab(string projectName);
+
     void ShowWarning(string message);
 
     IdeWindowCandidate? ChooseIdeWindow(IReadOnlyList<IdeWindowCandidate> candidates);

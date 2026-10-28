@@ -8,5 +8,12 @@ public interface IDesktopWindowService
 
     bool IsWindow(long handle);
 
+    bool IsSameWindow(IdeWindowCandidate identity);
+
     bool TryActivate(long handle);
+
+    Task<WindowCloseResult> RequestCloseAsync(
+        IdeWindowCandidate identity,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default);
 }

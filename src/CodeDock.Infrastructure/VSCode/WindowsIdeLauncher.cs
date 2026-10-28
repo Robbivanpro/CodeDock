@@ -7,7 +7,7 @@ namespace CodeDock.Infrastructure.VSCode;
 
 public sealed class WindowsIdeLauncher : IIdeLauncher
 {
-    public Task<OperationResult> LaunchAsync(
+    public Task<OperationResult<IdeLaunchReceipt>> LaunchAsync(
         ProjectWorkspace project,
         IdeInstallation installation,
         CancellationToken cancellationToken = default)
@@ -25,7 +25,7 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
             var targetResult = ResolveTarget(project);
             if (!targetResult.IsSuccess || targetResult.Value is null)
             {
-                return Task.FromResult(OperationResult.Failure(targetResult.Error ?? "No launch target is available."));
+                return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure(targetResult.Error ?? "No launch target is available."));
             }
 
             if (project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode)
@@ -34,12 +34,28 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
             }
 
             startInfo.ArgumentList.Add(targetResult.Value);
-            Process.Start(startInfo);
-            return Task.FromResult(OperationResult.Success());
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure("Windows did not create an IDE process."));
+            }
+
+            long processStartTimeUtcTicks;
+            try
+            {
+                processStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
+            }
+            catch (InvalidOperationException)
+            {
+                processStartTimeUtcTicks = 0;
+            }
+
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(
+                new IdeLaunchReceipt(process.Id, processStartTimeUtcTicks)));
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or IOException)
         {
-            return Task.FromResult(OperationResult.Failure($"The IDE could not be started: {exception.Message}"));
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure($"The IDE could not be started: {exception.Message}"));
         }
     }
 

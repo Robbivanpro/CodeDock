@@ -14,5 +14,18 @@ public interface IIdeWorkspaceService
 
     long? GetAssociatedWindow(Guid projectId);
 
+    IdeSessionSnapshot GetSession(Guid projectId, DevelopmentEnvironment environment);
+
+    void BeginEmbedding(Guid projectId);
+
+    void BeginDetaching(Guid projectId);
+
+    void SetEmbeddingState(Guid projectId, bool embedded);
+
+    Task<IdeCloseResult> CloseAsync(
+        Guid projectId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default);
+
     void ClearAssociation(Guid projectId);
 }

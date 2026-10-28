@@ -4,7 +4,7 @@ namespace CodeDock.Core.Interfaces;
 
 public interface IIdeLauncher
 {
-    Task<OperationResult> LaunchAsync(
+    Task<OperationResult<IdeLaunchReceipt>> LaunchAsync(
         ProjectWorkspace project,
         IdeInstallation installation,
         CancellationToken cancellationToken = default);

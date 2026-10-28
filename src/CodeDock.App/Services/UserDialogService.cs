@@ -7,8 +7,14 @@ namespace CodeDock.App.Services;
 public sealed class UserDialogService : IUserDialogService
 {
     public bool ConfirmRemove(string projectName) => MessageBox.Show(
-        $"Remove '{projectName}' from CodeDock?\n\nThe project folder and any VS Code window will not be changed.",
-        "Remove project",
+        $"Close only the '{projectName}' tab?\n\nThe associated IDE window will remain open.",
+        "Close tab only",
+        MessageBoxButton.YesNo,
+        MessageBoxImage.Question) == MessageBoxResult.Yes;
+
+    public bool ConfirmCloseIdeAndTab(string projectName) => MessageBox.Show(
+        $"Close the IDE window associated with '{projectName}' and then remove its tab?\n\nUnsaved changes will be handled by the IDE.",
+        "Close IDE and tab",
         MessageBoxButton.YesNo,
         MessageBoxImage.Question) == MessageBoxResult.Yes;
 

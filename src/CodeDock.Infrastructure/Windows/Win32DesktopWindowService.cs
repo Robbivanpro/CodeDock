@@ -1,8 +1,10 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using CodeDock.Core.Interfaces;
 using CodeDock.Core.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeDock.Infrastructure.Windows;
 
@@ -10,16 +12,23 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
 {
     private const int SwRestore = 9;
     private const uint GwOwner = 4;
+    private const uint WmClose = 0x0010;
+    private const uint SmtoAbortIfHung = 0x0002;
+    private readonly ILogger<Win32DesktopWindowService> _logger;
+
+    public Win32DesktopWindowService(ILogger<Win32DesktopWindowService> logger)
+    {
+        _logger = logger;
+    }
 
     public IReadOnlyList<IdeWindowCandidate> EnumerateIdeWindows(DevelopmentEnvironment environment)
     {
         var candidates = new List<IdeWindowCandidate>();
-        var expectedProcessName = environment == DevelopmentEnvironment.VisualStudioCode ? "Code" : "devenv";
+        var expectedProcessName = GetExpectedProcessName(environment);
 
         NativeMethods.EnumWindows((handle, _) =>
         {
-            if (!NativeMethods.IsWindowVisible(handle)
-                || NativeMethods.GetWindow(handle, GwOwner) != IntPtr.Zero)
+            if (!NativeMethods.IsWindowVisible(handle) || NativeMethods.GetWindow(handle, GwOwner) != IntPtr.Zero)
             {
                 return true;
             }
@@ -45,10 +54,12 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
                     handle.ToInt64(),
                     unchecked((int)processId),
                     title.ToString(),
-                    environment));
+                    environment,
+                    process.StartTime.ToUniversalTime().Ticks));
             }
-            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
             {
+                _logger.LogDebug(exception, "Window {WindowHandle} disappeared during IDE enumeration", handle.ToInt64());
             }
 
             return true;
@@ -58,6 +69,34 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
     }
 
     public bool IsWindow(long handle) => handle != 0 && NativeMethods.IsWindow(new IntPtr(handle));
+
+    public bool IsSameWindow(IdeWindowCandidate identity)
+    {
+        var window = new IntPtr(identity.Handle);
+        if (!NativeMethods.IsWindow(window))
+        {
+            return false;
+        }
+
+        NativeMethods.GetWindowThreadProcessId(window, out var processId);
+        if (processId != unchecked((uint)identity.ProcessId))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(identity.ProcessId);
+            return string.Equals(process.ProcessName, GetExpectedProcessName(identity.Environment), StringComparison.OrdinalIgnoreCase)
+                && (identity.ProcessStartTimeUtcTicks == 0
+                    || process.StartTime.ToUniversalTime().Ticks == identity.ProcessStartTimeUtcTicks);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            _logger.LogDebug(exception, "Could not validate IDE window {WindowHandle}", identity.Handle);
+            return false;
+        }
+    }
 
     public bool TryActivate(long handle)
     {
@@ -72,13 +111,61 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
             NativeMethods.ShowWindow(window, SwRestore);
         }
 
-        if (!NativeMethods.SetForegroundWindow(window))
+        return NativeMethods.SetForegroundWindow(window) && NativeMethods.GetForegroundWindow() == window;
+    }
+
+    public async Task<WindowCloseResult> RequestCloseAsync(
+        IdeWindowCandidate identity,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsWindow(identity.Handle))
         {
-            return false;
+            return new WindowCloseResult(WindowCloseStatus.AlreadyClosed, "The IDE window was already closed.");
         }
 
-        return NativeMethods.GetForegroundWindow() == window;
+        if (!IsSameWindow(identity))
+        {
+            return new WindowCloseResult(WindowCloseStatus.IdentityMismatch, "The window handle no longer belongs to the associated IDE process.");
+        }
+
+        var sent = NativeMethods.SendMessageTimeout(
+            new IntPtr(identity.Handle),
+            WmClose,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            SmtoAbortIfHung,
+            2000,
+            out _);
+        if (sent == IntPtr.Zero)
+        {
+            var error = Marshal.GetLastWin32Error();
+            _logger.LogWarning("WM_CLOSE failed for HWND {WindowHandle} with Win32 error {Error}", identity.Handle, error);
+            return new WindowCloseResult(WindowCloseStatus.SendFailed, $"Windows could not deliver the close request. Error {error}.");
+        }
+
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+            if (!IsWindow(identity.Handle))
+            {
+                return new WindowCloseResult(WindowCloseStatus.Closed, "The IDE window closed successfully.");
+            }
+
+            if (!IsSameWindow(identity))
+            {
+                return new WindowCloseResult(WindowCloseStatus.IdentityMismatch, "The original IDE window closed, but its handle was reused before confirmation.");
+            }
+        }
+
+        return new WindowCloseResult(
+            WindowCloseStatus.CancelledOrTimedOut,
+            "The IDE is still open. A save dialog may be active or the close request may have been cancelled.");
     }
+
+    private static string GetExpectedProcessName(DevelopmentEnvironment environment) =>
+        environment == DevelopmentEnvironment.VisualStudioCode ? "Code" : "devenv";
 
     private static class NativeMethods
     {
@@ -122,5 +209,15 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
 
         [DllImport("user32.dll")]
         internal static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern IntPtr SendMessageTimeout(
+            IntPtr windowHandle,
+            uint message,
+            IntPtr wParam,
+            IntPtr lParam,
+            uint flags,
+            uint timeoutMilliseconds,
+            out IntPtr result);
     }
 }

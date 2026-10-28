@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using CodeDock.App.Services;
 using CodeDock.App.ViewModels;
@@ -51,7 +52,16 @@ public partial class App : Application
     private static ServiceProvider ConfigureServices()
     {
         var services = new ServiceCollection();
-        services.AddLogging(builder => builder.AddDebug());
+        var logPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CodeDock",
+            "logs",
+            "codedock.log");
+        services.AddLogging(builder =>
+        {
+            builder.AddDebug();
+            builder.AddProvider(new CodeDockFileLoggerProvider(logPath));
+        });
         services.AddSingleton<CodeDockDataPaths>();
         services.AddSingleton<IProjectStore, ProjectJsonStore>();
         services.AddSingleton<ISessionStore, SessionJsonStore>();

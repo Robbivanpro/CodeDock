@@ -38,11 +38,23 @@ public sealed partial class ProjectTabViewModel : ObservableObject
     private bool _isIdeBusy;
 
     [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
     private string _ideStatus = "Ready to launch";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(EmbeddedWindowHandle))]
     private bool _isEmbedded;
+
+    [ObservableProperty]
+    private IdeSessionState _sessionState = IdeSessionState.Idle;
+
+    [ObservableProperty]
+    private int? _processId;
+
+    [ObservableProperty]
+    private long _associationGeneration;
 
     public bool HasAssociatedWindow => WindowHandle is not null;
 

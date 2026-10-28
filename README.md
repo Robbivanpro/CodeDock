@@ -28,7 +28,10 @@ Project and session data are saved under `%LocalAppData%\CodeDock`.
 - Choose Visual Studio Code or Visual Studio 2022 per project, with distinct tab badges
 - Launch, associate, and recall visible IDE windows without relying on window titles
 - Manually select an existing IDE window when automatic association is uncertain
-- Try isolated experimental window embedding with reversible native reparenting
+- Keep an independent experimental native host for every embedded workspace
+- Close the specifically associated IDE with the tab while respecting its save dialog
+- Close only the tab from its context menu and leave the IDE running
+- Record lifecycle diagnostics under `%LocalAppData%\CodeDock\logs`
 - Rename and remove tabs without modifying the underlying folders
 - Reorder tabs with drag and drop
 - Navigate with Ctrl+Tab and Ctrl+Shift+Tab

@@ -13,8 +13,9 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
     private readonly IDesktopWindowService _windowService;
     private readonly WindowAssociationResolver _associationResolver;
     private readonly ILogger<IdeWorkspaceService> _logger;
-    private readonly ConcurrentDictionary<Guid, long> _associations = new();
-    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _launchLocks = new();
+    private readonly ConcurrentDictionary<Guid, SessionRuntime> _sessions = new();
+    private readonly ConcurrentDictionary<long, Guid> _windowOwners = new();
+    private readonly SemaphoreSlim _launchAssociationLock = new(1, 1);
 
     public IdeWorkspaceService(
         IIdeLocator locator,
@@ -34,79 +35,360 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
         ProjectWorkspace project,
         CancellationToken cancellationToken = default)
     {
-        if (_associations.TryGetValue(project.Id, out var associatedHandle))
+        var environment = project.PreferredEnvironment;
+        var launchProject = SnapshotProject(project, environment);
+        var session = GetOrCreateSession(project.Id, environment);
+        if (!await session.Gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            if (_windowService.IsWindow(associatedHandle))
-            {
-                return _windowService.TryActivate(associatedHandle)
-                    ? new IdeOperationResult(IdeOperationStatus.Activated, "The associated IDE window was activated.", associatedHandle)
-                    : new IdeOperationResult(IdeOperationStatus.Failed, "Windows prevented CodeDock from bringing the IDE window to the foreground.", associatedHandle);
-            }
-
-            _associations.TryRemove(project.Id, out _);
-        }
-
-        var launchLock = _launchLocks.GetOrAdd(project.Id, _ => new SemaphoreSlim(1, 1));
-        if (!await launchLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-        {
-            return new IdeOperationResult(IdeOperationStatus.Failed, "An IDE launch is already in progress for this workspace.");
+            return new IdeOperationResult(IdeOperationStatus.Failed, "Another IDE operation is already in progress for this workspace.");
         }
 
         try
         {
-            var installation = await _locator.LocateAsync(project.PreferredEnvironment, cancellationToken).ConfigureAwait(false);
-            if (installation is null)
+            if (session.Environment != environment && session.Identity is not null)
             {
-                return new IdeOperationResult(IdeOperationStatus.NotInstalled, "The selected development environment was not found on this computer.");
+                return Fail(session, "Detach or close the associated IDE before changing the preferred environment.");
             }
 
-            var before = _windowService.EnumerateIdeWindows(project.PreferredEnvironment);
-            var launchResult = await _launcher.LaunchAsync(project, installation, cancellationToken).ConfigureAwait(false);
-            if (!launchResult.IsSuccess)
+            session.Environment = environment;
+            if (session.Identity is { } identity)
             {
-                return new IdeOperationResult(IdeOperationStatus.Failed, launchResult.Error ?? "The IDE could not be launched.");
+                if (_windowService.IsSameWindow(identity))
+                {
+                    Transition(session, IdeSessionState.Associated, null);
+                    return _windowService.TryActivate(identity.Handle)
+                        ? new IdeOperationResult(IdeOperationStatus.Activated, "The associated IDE window was activated.", identity.Handle)
+                        : Fail(session, "Windows prevented CodeDock from bringing the IDE window to the foreground.", identity.Handle);
+                }
+
+                ReleaseAssociation(session);
             }
 
-            var after = await WaitForWindowChangeAsync(project.PreferredEnvironment, before, cancellationToken).ConfigureAwait(false);
-            var association = _associationResolver.Resolve(before, after);
-            if (association.Status == IdeOperationStatus.LaunchedAndAssociated && association.WindowHandle is long handle)
+            Transition(session, IdeSessionState.Opening, null);
+            await _launchAssociationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                _associations[project.Id] = handle;
-                _windowService.TryActivate(handle);
-            }
+                var installation = await _locator.LocateAsync(environment, cancellationToken).ConfigureAwait(false);
+                if (installation is null)
+                {
+                    Transition(session, IdeSessionState.Failed, "The selected development environment was not found on this computer.");
+                    return new IdeOperationResult(IdeOperationStatus.NotInstalled, session.LastError!);
+                }
 
-            _logger.LogInformation(
-                "IDE operation for workspace {WorkspaceId} completed with status {Status}",
-                project.Id,
-                association.Status);
-            return association;
+                var before = _windowService.EnumerateIdeWindows(environment);
+                var launchResult = await _launcher.LaunchAsync(launchProject, installation, cancellationToken).ConfigureAwait(false);
+                if (!launchResult.IsSuccess)
+                {
+                    return Fail(session, launchResult.Error ?? "The IDE could not be launched.");
+                }
+
+                var after = await WaitForWindowChangeAsync(environment, before, cancellationToken).ConfigureAwait(false);
+                var association = _associationResolver.Resolve(before, after);
+                string? claimError = null;
+                if (association.Status == IdeOperationStatus.LaunchedAndAssociated
+                    && association.Candidates is [var detected]
+                    && (launchResult.Value is null || !launchResult.Value.Matches(detected)))
+                {
+                    association = new IdeOperationResult(
+                        IdeOperationStatus.Ambiguous,
+                        "A new IDE window appeared, but its process identity does not match the launched process. Select it manually only if it belongs to this workspace.",
+                        Candidates: [detected]);
+                }
+
+                if (association.Status == IdeOperationStatus.LaunchedAndAssociated
+                    && association.Candidates is [var candidate]
+                    && TryClaim(session, candidate, out claimError))
+                {
+                    _windowService.TryActivate(candidate.Handle);
+                    return association;
+                }
+
+                if (association.Status == IdeOperationStatus.LaunchedAndAssociated)
+                {
+                    var available = after.Where(candidate => !_windowOwners.ContainsKey(candidate.Handle)).ToList();
+                    Transition(session, IdeSessionState.Failed, claimError);
+                    return new IdeOperationResult(
+                        IdeOperationStatus.Ambiguous,
+                        claimError ?? "The detected window is already associated with another workspace.",
+                        Candidates: available);
+                }
+
+                Transition(session, IdeSessionState.Failed, association.Message);
+                return association with
+                {
+                    Candidates = association.Candidates?.Where(candidate => !_windowOwners.ContainsKey(candidate.Handle)).ToList()
+                };
+            }
+            finally
+            {
+                _launchAssociationLock.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Transition(session, IdeSessionState.Failed, "The IDE operation was cancelled.");
+            throw;
         }
         finally
         {
-            launchLock.Release();
+            session.Gate.Release();
         }
     }
 
     public IReadOnlyList<IdeWindowCandidate> GetCandidates(DevelopmentEnvironment environment) =>
-        _windowService.EnumerateIdeWindows(environment);
+        _windowService.EnumerateIdeWindows(environment)
+            .Where(candidate => !_windowOwners.ContainsKey(candidate.Handle))
+            .ToList();
 
     public IdeOperationResult AssociateAndActivate(ProjectWorkspace project, IdeWindowCandidate candidate)
     {
-        if (candidate.Environment != project.PreferredEnvironment || !_windowService.IsWindow(candidate.Handle))
+        var session = GetOrCreateSession(project.Id, project.PreferredEnvironment);
+        if (!session.Gate.Wait(0))
         {
-            return new IdeOperationResult(IdeOperationStatus.Failed, "The selected IDE window is no longer a valid candidate.");
+            return new IdeOperationResult(IdeOperationStatus.Failed, "Another IDE operation is already in progress for this workspace.");
         }
 
-        _associations[project.Id] = candidate.Handle;
-        return _windowService.TryActivate(candidate.Handle)
-            ? new IdeOperationResult(IdeOperationStatus.Activated, "The selected IDE window was associated and activated.", candidate.Handle)
-            : new IdeOperationResult(IdeOperationStatus.Failed, "The window was associated, but Windows prevented foreground activation.", candidate.Handle);
+        try
+        {
+            if (candidate.Environment != project.PreferredEnvironment || !_windowService.IsSameWindow(candidate))
+            {
+                return Fail(session, "The selected IDE window is no longer the same valid candidate.");
+            }
+
+            if (!TryClaim(session, candidate, out var error))
+            {
+                return Fail(session, error ?? "The selected IDE window belongs to another workspace.");
+            }
+
+            return _windowService.TryActivate(candidate.Handle)
+                ? new IdeOperationResult(IdeOperationStatus.Activated, "The selected IDE window was associated and activated.", candidate.Handle)
+                : Fail(session, "The window was associated, but Windows prevented foreground activation.", candidate.Handle);
+        }
+        finally
+        {
+            session.Gate.Release();
+        }
     }
 
-    public long? GetAssociatedWindow(Guid projectId) =>
-        _associations.TryGetValue(projectId, out var handle) && _windowService.IsWindow(handle) ? handle : null;
+    public long? GetAssociatedWindow(Guid projectId)
+    {
+        if (!_sessions.TryGetValue(projectId, out var session) || session.Identity is not { } identity)
+        {
+            return null;
+        }
 
-    public void ClearAssociation(Guid projectId) => _associations.TryRemove(projectId, out _);
+        if (_windowService.IsSameWindow(identity))
+        {
+            return identity.Handle;
+        }
+
+        if (session.Gate.Wait(0))
+        {
+            try
+            {
+                ReleaseAssociation(session);
+                Transition(session, IdeSessionState.Failed, "The associated IDE window is no longer available.");
+            }
+            finally
+            {
+                session.Gate.Release();
+            }
+        }
+
+        return null;
+    }
+
+    public IdeSessionSnapshot GetSession(Guid projectId, DevelopmentEnvironment environment)
+    {
+        var session = GetOrCreateSession(projectId, environment);
+        var identity = session.Identity;
+        return new IdeSessionSnapshot(
+            projectId,
+            session.Environment,
+            identity?.ProcessId,
+            identity?.Handle,
+            identity?.ProcessStartTimeUtcTicks ?? 0,
+            session.Generation,
+            session.State,
+            session.LastError);
+    }
+
+    public void SetEmbeddingState(Guid projectId, bool embedded)
+    {
+        if (!_sessions.TryGetValue(projectId, out var session))
+        {
+            return;
+        }
+
+        Transition(session, embedded ? IdeSessionState.Embedded : IdeSessionState.Associated, null);
+    }
+
+    public void BeginEmbedding(Guid projectId)
+    {
+        if (_sessions.TryGetValue(projectId, out var session) && session.Identity is not null)
+        {
+            Transition(session, IdeSessionState.Embedding, null);
+        }
+    }
+
+    public void BeginDetaching(Guid projectId)
+    {
+        if (_sessions.TryGetValue(projectId, out var session) && session.Identity is not null)
+        {
+            Transition(session, IdeSessionState.Detaching, null);
+        }
+    }
+
+    public async Task<IdeCloseResult> CloseAsync(
+        Guid projectId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(projectId, out var session))
+        {
+            return new IdeCloseResult(IdeCloseStatus.NotAssociated, "No IDE window is associated with this workspace.");
+        }
+
+        if (!await session.Gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return new IdeCloseResult(IdeCloseStatus.Busy, "The workspace is busy. Wait for the current IDE operation to finish.");
+        }
+
+        try
+        {
+            if (session.Identity is not { } identity)
+            {
+                Transition(session, IdeSessionState.Closed, null);
+                return new IdeCloseResult(IdeCloseStatus.NotAssociated, "No IDE window is associated with this workspace.");
+            }
+
+            Transition(session, IdeSessionState.Closing, null);
+            var result = await _windowService.RequestCloseAsync(identity, timeout, cancellationToken).ConfigureAwait(false);
+            switch (result.Status)
+            {
+                case WindowCloseStatus.Closed:
+                case WindowCloseStatus.AlreadyClosed:
+                    ReleaseAssociation(session);
+                    Transition(session, IdeSessionState.Closed, null);
+                    return new IdeCloseResult(
+                        result.Status == WindowCloseStatus.Closed ? IdeCloseStatus.Closed : IdeCloseStatus.AlreadyClosed,
+                        result.Message);
+                case WindowCloseStatus.CancelledOrTimedOut:
+                    Transition(session, IdeSessionState.Associated, result.Message);
+                    return new IdeCloseResult(IdeCloseStatus.CancelledOrTimedOut, result.Message);
+                case WindowCloseStatus.IdentityMismatch:
+                    Transition(session, IdeSessionState.Failed, result.Message);
+                    return new IdeCloseResult(IdeCloseStatus.IdentityMismatch, result.Message);
+                default:
+                    Transition(session, IdeSessionState.Failed, result.Message);
+                    return new IdeCloseResult(IdeCloseStatus.Failed, result.Message);
+            }
+        }
+        finally
+        {
+            session.Gate.Release();
+        }
+    }
+
+    public void ClearAssociation(Guid projectId)
+    {
+        if (!_sessions.TryGetValue(projectId, out var session) || !session.Gate.Wait(0))
+        {
+            return;
+        }
+
+        try
+        {
+            ReleaseAssociation(session);
+            Transition(session, IdeSessionState.Idle, null);
+        }
+        finally
+        {
+            session.Gate.Release();
+        }
+    }
+
+    private SessionRuntime GetOrCreateSession(Guid projectId, DevelopmentEnvironment environment) =>
+        _sessions.GetOrAdd(projectId, id => new SessionRuntime(id, environment));
+
+    private static ProjectWorkspace SnapshotProject(ProjectWorkspace project, DevelopmentEnvironment environment) => new()
+    {
+        Id = project.Id,
+        Name = project.Name,
+        FolderPath = project.FolderPath,
+        WorkspaceFilePath = project.WorkspaceFilePath,
+        GitBranch = project.GitBranch,
+        SortOrder = project.SortOrder,
+        IsPinned = project.IsPinned,
+        PreferredEnvironment = environment
+    };
+
+    private bool TryClaim(SessionRuntime session, IdeWindowCandidate candidate, out string? error)
+    {
+        error = null;
+        if (!_windowService.IsSameWindow(candidate))
+        {
+            error = "The detected IDE window changed before it could be associated.";
+            return false;
+        }
+
+        if (_windowOwners.TryGetValue(candidate.Handle, out var owner) && owner != session.WorkspaceId)
+        {
+            error = "This IDE window is already associated with another workspace.";
+            return false;
+        }
+
+        if (!_windowOwners.TryAdd(candidate.Handle, session.WorkspaceId)
+            && (!_windowOwners.TryGetValue(candidate.Handle, out owner) || owner != session.WorkspaceId))
+        {
+            error = "This IDE window was claimed by another workspace.";
+            return false;
+        }
+
+        ReleaseAssociation(session, candidate.Handle);
+        session.Identity = candidate;
+        session.Environment = candidate.Environment;
+        session.Generation++;
+        Transition(session, IdeSessionState.Associated, null);
+        return true;
+    }
+
+    private void ReleaseAssociation(SessionRuntime session, long exceptHandle = 0)
+    {
+        if (session.Identity is not { } current)
+        {
+            return;
+        }
+
+        if (current.Handle != exceptHandle)
+        {
+            _windowOwners.TryRemove(new KeyValuePair<long, Guid>(current.Handle, session.WorkspaceId));
+        }
+
+        session.Identity = null;
+    }
+
+    private IdeOperationResult Fail(SessionRuntime session, string message, long? handle = null)
+    {
+        Transition(session, IdeSessionState.Failed, message);
+        return new IdeOperationResult(IdeOperationStatus.Failed, message, handle);
+    }
+
+    private void Transition(SessionRuntime session, IdeSessionState next, string? error)
+    {
+        var previous = session.State;
+        session.State = next;
+        session.LastError = error;
+        _logger.LogInformation(
+            "Workspace {WorkspaceId} IDE state {PreviousState} -> {NextState}; PID {ProcessId}; HWND {WindowHandle}; generation {Generation}; error {Error}",
+            session.WorkspaceId,
+            previous,
+            next,
+            session.Identity?.ProcessId,
+            session.Identity?.Handle,
+            session.Generation,
+            error);
+    }
 
     private async Task<IReadOnlyList<IdeWindowCandidate>> WaitForWindowChangeAsync(
         DevelopmentEnvironment environment,
@@ -128,5 +410,28 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
         }
 
         return _windowService.EnumerateIdeWindows(environment);
+    }
+
+    private sealed class SessionRuntime
+    {
+        public SessionRuntime(Guid workspaceId, DevelopmentEnvironment environment)
+        {
+            WorkspaceId = workspaceId;
+            Environment = environment;
+        }
+
+        public Guid WorkspaceId { get; }
+
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+
+        public DevelopmentEnvironment Environment { get; set; }
+
+        public IdeWindowCandidate? Identity { get; set; }
+
+        public long Generation { get; set; }
+
+        public IdeSessionState State { get; set; }
+
+        public string? LastError { get; set; }
     }
 }

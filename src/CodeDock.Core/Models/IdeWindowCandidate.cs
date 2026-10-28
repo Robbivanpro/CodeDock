@@ -4,4 +4,5 @@ public sealed record IdeWindowCandidate(
     long Handle,
     int ProcessId,
     string Title,
-    DevelopmentEnvironment Environment);
+    DevelopmentEnvironment Environment,
+    long ProcessStartTimeUtcTicks = 0);

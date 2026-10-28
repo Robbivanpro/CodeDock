@@ -3,7 +3,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using CodeDock.App.ViewModels;
+using CodeDock.App.Controls;
+using CodeDock.App.Services;
 using CodeDock.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -12,11 +15,13 @@ namespace CodeDock.App.Views;
 public partial class MainWindow : Window
 {
     private readonly ILogger<MainWindow> _logger;
+    private readonly IUserDialogService _dialogService;
     private bool _shutdownCompleted;
 
-    public MainWindow(ILogger<MainWindow> logger)
+    public MainWindow(ILogger<MainWindow> logger, IUserDialogService dialogService)
     {
         _logger = logger;
+        _dialogService = dialogService;
         InitializeComponent();
     }
 
@@ -30,6 +35,17 @@ public partial class MainWindow : Window
         }
 
         e.Cancel = true;
+        if (!TryDetachAllEmbedded(out var detachError))
+        {
+            MessageBox.Show(
+                this,
+                detachError,
+                "CodeDock detach error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
         IsEnabled = false;
         try
         {
@@ -88,9 +104,64 @@ public partial class MainWindow : Window
     {
         if (sender is Button { DataContext: ProjectTabViewModel project })
         {
-            await ViewModel.RemoveProjectCommand.ExecuteAsync(project);
+            if (project.IsIdeBusy || ViewModel.IsBusy)
+            {
+                return;
+            }
+
+            var closeIde = project.HasAssociatedWindow;
+            _logger.LogInformation(
+                "Workspace {WorkspaceId} tab close requested; close IDE {CloseIde}; embedded {Embedded}",
+                project.Id,
+                closeIde,
+                project.IsEmbedded);
+            var confirmed = closeIde
+                ? _dialogService.ConfirmCloseIdeAndTab(project.Name)
+                : _dialogService.ConfirmRemove(project.Name);
+            if (!confirmed)
+            {
+                return;
+            }
+
+            var wasEmbedded = project.IsEmbedded;
+            if (!TryDetachProject(project, out var error))
+            {
+                MessageBox.Show(this, error, "CodeDock detach error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            ViewModel.SetEmbeddedState(project, false);
+            var removed = closeIde
+                ? await ViewModel.CloseProjectAndIdeAsync(project)
+                : await ViewModel.RemoveTabOnlyAsync(project);
+            if (!removed && wasEmbedded && project.HasAssociatedWindow)
+            {
+                ViewModel.SetEmbeddedState(project, true);
+            }
+
             e.Handled = true;
         }
+    }
+
+    private async void OnCloseTabOnlyClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { DataContext: ProjectTabViewModel project }
+            || project.IsIdeBusy
+            || ViewModel.IsBusy
+            || !_dialogService.ConfirmRemove(project.Name))
+        {
+            return;
+        }
+
+        if (!TryDetachProject(project, out var error))
+        {
+            MessageBox.Show(this, error, "CodeDock detach error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        ViewModel.SetEmbeddedState(project, false);
+        await ViewModel.RemoveTabOnlyAsync(project);
+        e.Handled = true;
     }
 
     private async void OnTabDrop(object sender, DragEventArgs e)
@@ -130,7 +201,7 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 
-    private void OnEmbedIdeClick(object sender, RoutedEventArgs e)
+    private async void OnEmbedIdeClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: ProjectTabViewModel project })
         {
@@ -148,14 +219,42 @@ public partial class MainWindow : Window
             return;
         }
 
+        ViewModel.BeginEmbedding(project);
         project.IsEmbedded = true;
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        var host = FindProjectHost(project);
+        if (host is null || !host.IsAttached)
+        {
+            project.IsEmbedded = false;
+            ViewModel.SetEmbeddedState(project, false);
+            MessageBox.Show(
+                this,
+                host?.LastError ?? "The IDE window could not be attached to its workspace host.",
+                "CodeDock embedding error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            _logger.LogWarning(
+                "Workspace {WorkspaceId} embedding failed: {Error}",
+                project.Id,
+                host?.LastError ?? "Host was not created or attached");
+            return;
+        }
+
+        ViewModel.SetEmbeddedState(project, true);
+        _logger.LogInformation("Workspace {WorkspaceId} embedded successfully", project.Id);
     }
 
     private void OnExitEmbeddedClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is MainWindowViewModel { SelectedProject: { } project })
         {
-            project.IsEmbedded = false;
+            if (!TryDetachProject(project, out var error))
+            {
+                MessageBox.Show(this, error, "CodeDock detach error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            ViewModel.SetEmbeddedState(project, false);
         }
     }
 
@@ -181,5 +280,66 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    private bool TryDetachAllEmbedded(out string? error)
+    {
+        foreach (var project in ViewModel.Projects.Where(project => project.IsEmbedded))
+        {
+            if (!TryDetachProject(project, out error))
+            {
+                return false;
+            }
+
+            ViewModel.SetEmbeddedState(project, false);
+        }
+
+        error = null;
+        return true;
+    }
+
+    private bool TryDetachProject(ProjectTabViewModel project, out string? error)
+    {
+        var host = FindProjectHost(project);
+        if (host is null || !host.IsAttached)
+        {
+            error = null;
+            return true;
+        }
+
+        ViewModel.BeginDetaching(project);
+        var detached = host.TryDetach(out error);
+        if (detached)
+        {
+            _logger.LogInformation("Workspace {WorkspaceId} detached successfully", project.Id);
+        }
+        else
+        {
+            _logger.LogWarning("Workspace {WorkspaceId} detach failed: {Error}", project.Id, error);
+            ViewModel.SetEmbeddedState(project, true);
+        }
+
+        return detached;
+    }
+
+    private ExternalWindowHost? FindProjectHost(ProjectTabViewModel project) =>
+        FindVisualChildren<ExternalWindowHost>(EmbeddedHosts)
+            .FirstOrDefault(candidate => ReferenceEquals(candidate.DataContext, project));
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in FindVisualChildren<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 }

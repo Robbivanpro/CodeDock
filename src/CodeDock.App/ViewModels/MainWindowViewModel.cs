@@ -41,7 +41,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IReadOnlyList<DevelopmentEnvironment> AvailableEnvironments { get; } = Enum.GetValues<DevelopmentEnvironment>();
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(RemoveProjectCommand))]
     private ProjectTabViewModel? _selectedProject;
 
     [ObservableProperty]
@@ -49,7 +48,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AddProjectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(RemoveProjectCommand))]
     private bool _isBusy;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -73,6 +71,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? "Add a project folder to create your first tab."
                 : $"{Projects.Count} project{(Projects.Count == 1 ? string.Empty : "s")} restored.";
             _isInitialized = true;
+            if (SelectedProject is not null)
+            {
+                SelectedProject.IsSelected = true;
+            }
 
             var warning = string.Join(
                 Environment.NewLine + Environment.NewLine,
@@ -126,33 +128,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private bool CanAddProject() => !IsBusy;
 
-    [RelayCommand(CanExecute = nameof(CanRemoveProject))]
-    private async Task RemoveProjectAsync(ProjectTabViewModel? project)
+    public async Task<bool> RemoveTabOnlyAsync(ProjectTabViewModel project)
     {
-        project ??= SelectedProject;
-        if (project is null || !_dialogService.ConfirmRemove(project.Name))
-        {
-            return;
-        }
-
         IsBusy = true;
         try
         {
-            var index = Projects.IndexOf(project);
-            var result = await _registry.RemoveProjectAsync(project.Id);
-            if (!result.IsSuccess)
-            {
-                _dialogService.ShowWarning(result.Error ?? "The project could not be removed.");
-                return;
-            }
-
-            Projects.Remove(project);
-            SelectedProject = Projects.Count == 0 ? null : Projects[Math.Min(index, Projects.Count - 1)];
-            StatusMessage = $"Removed {project.Name} from CodeDock.";
+            _ideWorkspaceService.ClearAssociation(project.Id);
+            return await RemoveProjectRecordAsync(project);
         }
         catch (Exception exception)
         {
             HandleFailure(exception, "The project could not be removed.");
+            return false;
         }
         finally
         {
@@ -160,7 +147,40 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool CanRemoveProject(ProjectTabViewModel? project) => !IsBusy && (project is not null || SelectedProject is not null);
+    public async Task<bool> CloseProjectAndIdeAsync(ProjectTabViewModel project)
+    {
+        if (project.IsIdeBusy)
+        {
+            _dialogService.ShowWarning("Wait for the current IDE operation to finish before closing this tab.");
+            return false;
+        }
+
+        project.IsIdeBusy = true;
+        project.IdeStatus = "Waiting for the IDE to close…";
+        try
+        {
+            var closeResult = await _ideWorkspaceService.CloseAsync(project.Id, TimeSpan.FromSeconds(30));
+            project.IdeStatus = closeResult.Message;
+            StatusMessage = closeResult.Message;
+            SyncSession(project);
+            if (!closeResult.CanRemoveTab)
+            {
+                _dialogService.ShowWarning(closeResult.Message);
+                return false;
+            }
+
+            return await RemoveProjectRecordAsync(project);
+        }
+        catch (Exception exception)
+        {
+            HandleFailure(exception, "The IDE and tab could not be closed safely.");
+            return false;
+        }
+        finally
+        {
+            project.IsIdeBusy = false;
+        }
+    }
 
     public async Task CommitProjectNameAsync(ProjectTabViewModel project)
     {
@@ -199,9 +219,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task SetPreferredEnvironmentAsync(ProjectTabViewModel project)
     {
-        _ideWorkspaceService.ClearAssociation(project.Id);
-        project.WindowHandle = null;
-        project.IdeStatus = "Ready to launch";
+        var model = _registry.Projects.FirstOrDefault(item => item.Id == project.Id);
+        if (model is null)
+        {
+            return;
+        }
+
+        project.WindowHandle = _ideWorkspaceService.GetAssociatedWindow(project.Id);
+
+        if (project.IsIdeBusy)
+        {
+            project.PreferredEnvironment = model.PreferredEnvironment;
+            _dialogService.ShowWarning("Wait for the current IDE operation to finish before changing the environment.");
+            return;
+        }
+
+        if (project.HasAssociatedWindow && model.PreferredEnvironment != project.PreferredEnvironment)
+        {
+            project.PreferredEnvironment = model.PreferredEnvironment;
+            _dialogService.ShowWarning("Close the associated IDE or use 'Close tab only' before changing the environment.");
+            return;
+        }
+
         var result = await _registry.SetPreferredEnvironmentAsync(project.Id, project.PreferredEnvironment);
         if (result.IsSuccess)
         {
@@ -250,6 +289,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             project.WindowHandle = result.WindowHandle ?? _ideWorkspaceService.GetAssociatedWindow(project.Id);
             project.IdeStatus = result.Message;
             StatusMessage = result.Message;
+            SyncSession(project);
 
             if (result.Status is IdeOperationStatus.Failed or IdeOperationStatus.NotInstalled)
             {
@@ -303,6 +343,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         project.WindowHandle = result.WindowHandle;
         project.IdeStatus = result.Message;
         StatusMessage = result.Message;
+        SyncSession(project);
     }
 
     public void SelectNextProject(bool backwards)
@@ -324,15 +365,61 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await SaveSessionAsync(cancellationToken);
     }
 
-    partial void OnSelectedProjectChanged(ProjectTabViewModel? value)
+    partial void OnSelectedProjectChanged(ProjectTabViewModel? oldValue, ProjectTabViewModel? newValue)
     {
+        if (oldValue is not null)
+        {
+            oldValue.IsSelected = false;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.IsSelected = true;
+        }
+
         if (!_isInitialized)
         {
             return;
         }
 
-        _session.SelectedProjectId = value?.Id;
+        _session.SelectedProjectId = newValue?.Id;
         _ = SaveSessionSafelyAsync();
+    }
+
+    public void SetEmbeddedState(ProjectTabViewModel project, bool embedded)
+    {
+        project.IsEmbedded = embedded;
+        _ideWorkspaceService.SetEmbeddingState(project.Id, embedded);
+        SyncSession(project);
+    }
+
+    public void BeginEmbedding(ProjectTabViewModel project) => _ideWorkspaceService.BeginEmbedding(project.Id);
+
+    public void BeginDetaching(ProjectTabViewModel project) => _ideWorkspaceService.BeginDetaching(project.Id);
+
+    private async Task<bool> RemoveProjectRecordAsync(ProjectTabViewModel project)
+    {
+        var index = Projects.IndexOf(project);
+        var result = await _registry.RemoveProjectAsync(project.Id);
+        if (!result.IsSuccess)
+        {
+            _dialogService.ShowWarning(result.Error ?? "The project could not be removed.");
+            return false;
+        }
+
+        Projects.Remove(project);
+        SelectedProject = Projects.Count == 0 ? null : Projects[Math.Min(index, Projects.Count - 1)];
+        StatusMessage = $"Removed {project.Name} from CodeDock.";
+        return true;
+    }
+
+    private void SyncSession(ProjectTabViewModel project)
+    {
+        var snapshot = _ideWorkspaceService.GetSession(project.Id, project.PreferredEnvironment);
+        project.WindowHandle = snapshot.WindowHandle;
+        project.ProcessId = snapshot.ProcessId;
+        project.AssociationGeneration = snapshot.Generation;
+        project.SessionState = snapshot.State;
     }
 
     private async Task SaveSessionSafelyAsync()
