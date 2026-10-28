@@ -77,24 +77,32 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <TabControl x:Name="ProjectTabs"
-                            ItemsSource="{Binding Projects}"
-                            SelectedItem="{Binding SelectedProject}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            AllowDrop="True">
-                    <TabControl.Resources>
-                        <Style TargetType="TabItem">
+                <ListBox x:Name="ProjectTabs"
+                         ItemsSource="{Binding Projects}"
+                         SelectedItem="{Binding SelectedProject}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         AllowDrop="True">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.Resources>
+                        <Style TargetType="ListBoxItem">
                             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
                             <Setter Property="Background" Value="Transparent" />
                             <Setter Property="BorderThickness" Value="0" />
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="0,0,7,0" />
+                            <Setter Property="VerticalContentAlignment" Value="Center" />
                             <EventSetter Event="PreviewMouseMove" Handler="OnTabPreviewMouseMove" />
                             <EventSetter Event="Drop" Handler="OnTabDrop" />
                             <Setter Property="Template">
                                 <Setter.Value>
-                                    <ControlTemplate TargetType="TabItem">
+                                    <ControlTemplate TargetType="ListBoxItem">
                                         <Border x:Name="TabChrome"
                                                 Padding="11,7"
                                                 Background="Transparent"
@@ -102,7 +110,7 @@
                                                 BorderThickness="1"
                                                 CornerRadius="8"
                                                 SnapsToDevicePixels="True">
-                                            <ContentPresenter ContentSource="Header" />
+                                            <ContentPresenter />
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
@@ -118,9 +126,9 @@
                                 </Setter.Value>
                             </Setter>
                         </Style>
-                    </TabControl.Resources>
+                    </ListBox.Resources>
 
-                    <TabControl.ItemTemplate>
+                    <ListBox.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:ProjectTabViewModel}">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Border Width="25" Height="25" CornerRadius="6">
@@ -181,12 +189,8 @@
                                         Click="OnRemoveProjectClick" />
                             </StackPanel>
                         </DataTemplate>
-                    </TabControl.ItemTemplate>
-
-                    <TabControl.ContentTemplate>
-                        <DataTemplate><Grid Height="0" /></DataTemplate>
-                    </TabControl.ContentTemplate>
-                </TabControl>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
                 <Button Grid.Column="1"
                         Style="{StaticResource PrimaryButton}"

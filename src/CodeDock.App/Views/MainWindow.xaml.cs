@@ -78,7 +78,7 @@ public partial class MainWindow : Window
     {
         if (e.LeftButton == MouseButtonState.Pressed
             && FindVisualParent<Button>(e.OriginalSource as DependencyObject) is null
-            && sender is TabItem { DataContext: ProjectTabViewModel project })
+            && sender is ListBoxItem { DataContext: ProjectTabViewModel project })
         {
             DragDrop.DoDragDrop((DependencyObject)sender, project, DragDropEffects.Move);
         }
@@ -95,7 +95,7 @@ public partial class MainWindow : Window
 
     private async void OnTabDrop(object sender, DragEventArgs e)
     {
-        if (sender is not TabItem { DataContext: ProjectTabViewModel target }
+        if (sender is not ListBoxItem { DataContext: ProjectTabViewModel target }
             || e.Data.GetData(typeof(ProjectTabViewModel)) is not ProjectTabViewModel project)
         {
             return;
