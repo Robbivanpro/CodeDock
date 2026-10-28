@@ -2,6 +2,7 @@ namespace CodeDock.Core.Models;
 
 public enum IdeOperationStatus
 {
+    Associated,
     Activated,
     LaunchedAndAssociated,
     LaunchedWithoutAssociation,
@@ -16,5 +17,5 @@ public sealed record IdeOperationResult(
     long? WindowHandle = null,
     IReadOnlyList<IdeWindowCandidate>? Candidates = null)
 {
-    public bool IsSuccess => Status is IdeOperationStatus.Activated or IdeOperationStatus.LaunchedAndAssociated;
+    public bool IsSuccess => Status is IdeOperationStatus.Associated or IdeOperationStatus.Activated or IdeOperationStatus.LaunchedAndAssociated;
 }

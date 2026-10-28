@@ -58,7 +58,10 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
                     Transition(session, IdeSessionState.Associated, null);
                     return _windowService.TryActivate(identity.Handle)
                         ? new IdeOperationResult(IdeOperationStatus.Activated, "The associated IDE window was activated.", identity.Handle)
-                        : Fail(session, "Windows prevented CodeDock from bringing the IDE window to the foreground.", identity.Handle);
+                        : new IdeOperationResult(
+                            IdeOperationStatus.Associated,
+                            "The IDE window is associated. Windows did not grant foreground activation, but embedding remains available.",
+                            identity.Handle);
                 }
 
                 ReleaseAssociation(session);
@@ -162,7 +165,10 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
 
             return _windowService.TryActivate(candidate.Handle)
                 ? new IdeOperationResult(IdeOperationStatus.Activated, "The selected IDE window was associated and activated.", candidate.Handle)
-                : Fail(session, "The window was associated, but Windows prevented foreground activation.", candidate.Handle);
+                : new IdeOperationResult(
+                    IdeOperationStatus.Associated,
+                    "The IDE window was associated. Windows did not grant foreground activation, but embedding remains available.",
+                    candidate.Handle);
         }
         finally
         {

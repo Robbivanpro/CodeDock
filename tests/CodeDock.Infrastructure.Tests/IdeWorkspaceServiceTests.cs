@@ -28,6 +28,21 @@ public sealed class IdeWorkspaceServiceTests
     }
 
     [Fact]
+    public void AssociateAndActivate_KeepsSuccessfulAssociationWhenForegroundIsDenied()
+    {
+        var windows = new FakeDesktopWindowService { AllowActivation = false };
+        var candidate = windows.AddWindow(111, 1101);
+        var service = CreateService(windows, new FakeIdeLauncher());
+        var project = CreateProject();
+
+        var result = service.AssociateAndActivate(project, candidate);
+
+        Assert.Equal(IdeOperationStatus.Associated, result.Status);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(candidate.Handle, service.GetAssociatedWindow(project.Id));
+    }
+
+    [Fact]
     public async Task OpenOrActivateAsync_SerializesConcurrentWorkspaceDiscovery()
     {
         var windows = new FakeDesktopWindowService();
@@ -299,6 +314,8 @@ public sealed class IdeWorkspaceServiceTests
 
         public WindowCloseResult CloseResult { get; set; } = new(WindowCloseStatus.Closed, "Closed");
 
+        public bool AllowActivation { get; set; } = true;
+
         public IdeWindowCandidate AddWindow(long handle, int processId)
         {
             var candidate = new IdeWindowCandidate(
@@ -321,7 +338,7 @@ public sealed class IdeWorkspaceServiceTests
         public bool IsSameWindow(IdeWindowCandidate identity) =>
             _windows.TryGetValue(identity.Handle, out var current) && current == identity;
 
-        public bool TryActivate(long handle) => IsWindow(handle);
+        public bool TryActivate(long handle) => AllowActivation && IsWindow(handle);
 
         public Task<WindowCloseResult> RequestCloseAsync(
             IdeWindowCandidate identity,

@@ -111,7 +111,7 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
             NativeMethods.ShowWindow(window, SwRestore);
         }
 
-        return NativeMethods.SetForegroundWindow(window) && NativeMethods.GetForegroundWindow() == window;
+        return NativeMethods.SetForegroundWindow(window);
     }
 
     public async Task<WindowCloseResult> RequestCloseAsync(
@@ -206,9 +206,6 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SetForegroundWindow(IntPtr windowHandle);
-
-        [DllImport("user32.dll")]
-        internal static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern IntPtr SendMessageTimeout(
