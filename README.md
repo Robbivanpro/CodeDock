@@ -18,6 +18,8 @@ dotnet test CodeDock.slnx --no-build
 dotnet run --project src/CodeDock.App/CodeDock.App.csproj
 ```
 
+For the workspace-local self-contained build, close any older CodeDock instance and double-click `Start-CodeDock.cmd`.
+
 Project and session data are saved under `%LocalAppData%\CodeDock`.
 
 ## Current capabilities
