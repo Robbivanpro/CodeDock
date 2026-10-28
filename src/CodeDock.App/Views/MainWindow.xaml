@@ -34,7 +34,7 @@
     <Grid Background="{StaticResource CanvasBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="42" />
-            <RowDefinition Height="64" />
+            <RowDefinition Height="52" />
             <RowDefinition Height="*" />
             <RowDefinition Height="28" />
         </Grid.RowDefinitions>
@@ -71,7 +71,7 @@
         </Border>
 
         <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,0,1">
-            <Grid Margin="16,9">
+            <Grid Margin="16,5">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -105,7 +105,7 @@
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ListBoxItem">
                                         <Border x:Name="TabChrome"
-                                                Padding="11,7"
+                                                Padding="10,5"
                                                 Background="Transparent"
                                                 BorderBrush="Transparent"
                                                 BorderThickness="1"
@@ -137,7 +137,7 @@
                                         <MenuItem Header="Close tab only" Click="OnCloseTabOnlyClick" />
                                     </ContextMenu>
                                 </StackPanel.ContextMenu>
-                                <Border Width="25" Height="25" CornerRadius="6">
+                                <Border Width="23" Height="23" CornerRadius="6">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="Background" Value="#143D59" />

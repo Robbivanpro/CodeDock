@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace CodeDock.App.Controls;
@@ -14,6 +15,12 @@ public sealed class ExternalWindowHost : HwndHost
     private const long WsPopup = 0x80000000L;
     private const long WsCaption = 0x00C00000L;
     private const long WsThickFrame = 0x00040000L;
+    private const long WsTabStop = 0x00010000L;
+    private const int WmParentNotify = 0x0210;
+    private const int WmLButtonDown = 0x0201;
+    private const int WmRButtonDown = 0x0204;
+    private const int WmMButtonDown = 0x0207;
+    private const int WmXButtonDown = 0x020B;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
@@ -37,9 +44,9 @@ public sealed class ExternalWindowHost : HwndHost
 
     public ExternalWindowHost()
     {
+        Focusable = true;
         SizeChanged += OnSizeChanged;
         GotKeyboardFocus += OnGotKeyboardFocus;
-        MouseDown += OnMouseDown;
     }
 
     public long WindowHandle
@@ -98,6 +105,26 @@ public sealed class ExternalWindowHost : HwndHost
         }
     }
 
+    protected override bool TabIntoCore(TraversalRequest request) => FocusExternalWindow();
+
+    protected override IntPtr WndProc(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        // Mouse input sent to a hosted HWND does not travel through WPF's routed
+        // input events. WM_PARENTNOTIFY is the reliable opportunity to transfer
+        // keyboard focus to the IDE when one of its native children is clicked.
+        if (message == WmParentNotify && IsMouseButtonDown(unchecked((int)wParam.ToInt64()) & 0xFFFF))
+        {
+            FocusExternalWindow();
+        }
+
+        return base.WndProc(hwnd, message, wParam, lParam, ref handled);
+    }
+
     private static void OnWindowHandleChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args)
     {
         var host = (ExternalWindowHost)dependencyObject;
@@ -144,7 +171,7 @@ public sealed class ExternalWindowHost : HwndHost
         }
 
         var hostedStyle = new IntPtr(
-            (_originalStyle.ToInt64() & ~WsPopup & ~WsCaption & ~WsThickFrame) | WsChild | WsVisible);
+            (_originalStyle.ToInt64() & ~WsPopup & ~WsCaption & ~WsThickFrame) | WsChild | WsVisible | WsTabStop);
         if (!TrySetWindowLong(externalHandle, GwlStyle, hostedStyle, out var styleError))
         {
             LastError = styleError;
@@ -249,13 +276,42 @@ public sealed class ExternalWindowHost : HwndHost
         return false;
     }
 
-    private void FocusExternalWindow()
+    private bool FocusExternalWindow()
     {
-        if (_externalHandle != IntPtr.Zero && NativeMethods.IsWindow(_externalHandle))
+        if (_externalHandle == IntPtr.Zero || !NativeMethods.IsWindow(_externalHandle))
         {
+            return false;
+        }
+
+        var currentThread = NativeMethods.GetCurrentThreadId();
+        var ideThread = NativeMethods.GetWindowThreadProcessId(_externalHandle, out _);
+        var inputAttached = ideThread != 0
+            && ideThread != currentThread
+            && NativeMethods.AttachThreadInput(currentThread, ideThread, true);
+
+        try
+        {
+            // Keep WPF's logical focus on the HwndHost while Win32 focus moves to
+            // the external child. This prevents WPF from immediately reclaiming it.
+            if (!IsKeyboardFocusWithin)
+            {
+                Focus();
+            }
+
             NativeMethods.SetFocus(_externalHandle);
+            return NativeMethods.GetFocus() == _externalHandle;
+        }
+        finally
+        {
+            if (inputAttached)
+            {
+                NativeMethods.AttachThreadInput(currentThread, ideThread, false);
+            }
         }
     }
+
+    private static bool IsMouseButtonDown(int message) => message is
+        WmLButtonDown or WmRButtonDown or WmMButtonDown or WmXButtonDown;
 
     private static bool TrySetWindowLong(IntPtr handle, int index, IntPtr value, out string? error)
     {
@@ -288,9 +344,7 @@ public sealed class ExternalWindowHost : HwndHost
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e) => ResizeExternalWindow();
 
-    private void OnGotKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) => FocusExternalWindow();
-
-    private void OnMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => FocusExternalWindow();
+    private void OnGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => FocusExternalWindow();
 
     private static class NativeMethods
     {
@@ -377,7 +431,20 @@ public sealed class ExternalWindowHost : HwndHost
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SetWindowPlacement(IntPtr windowHandle, ref WindowPlacement placement);
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         internal static extern IntPtr SetFocus(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetFocus();
+
+        [DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr windowHandle, out uint processId);
+
+        [DllImport("kernel32.dll")]
+        internal static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
     }
 }
