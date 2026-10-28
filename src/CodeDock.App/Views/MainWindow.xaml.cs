@@ -130,6 +130,35 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 
+    private void OnEmbedIdeClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: ProjectTabViewModel project })
+        {
+            return;
+        }
+
+        if (project.WindowHandle is null)
+        {
+            MessageBox.Show(
+                this,
+                "Open or associate the IDE window before enabling experimental embedding.",
+                "CodeDock",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        project.IsEmbedded = true;
+    }
+
+    private void OnExitEmbeddedClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel { SelectedProject: { } project })
+        {
+            project.IsEmbedded = false;
+        }
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))

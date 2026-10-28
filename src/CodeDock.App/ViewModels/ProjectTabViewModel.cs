@@ -29,6 +29,25 @@ public sealed partial class ProjectTabViewModel : ObservableObject
     [ObservableProperty]
     private DevelopmentEnvironment _preferredEnvironment;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAssociatedWindow))]
+    [NotifyPropertyChangedFor(nameof(EmbeddedWindowHandle))]
+    private long? _windowHandle;
+
+    [ObservableProperty]
+    private bool _isIdeBusy;
+
+    [ObservableProperty]
+    private string _ideStatus = "Ready to launch";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EmbeddedWindowHandle))]
+    private bool _isEmbedded;
+
+    public bool HasAssociatedWindow => WindowHandle is not null;
+
+    public long? EmbeddedWindowHandle => IsEmbedded ? WindowHandle : null;
+
     public void RestoreName() => Name = _project.Name;
 
     public void AcceptName(string name)

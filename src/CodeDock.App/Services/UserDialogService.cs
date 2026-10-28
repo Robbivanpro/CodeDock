@@ -1,4 +1,6 @@
 using System.Windows;
+using CodeDock.App.Views;
+using CodeDock.Core.Models;
 
 namespace CodeDock.App.Services;
 
@@ -15,4 +17,13 @@ public sealed class UserDialogService : IUserDialogService
         "CodeDock",
         MessageBoxButton.OK,
         MessageBoxImage.Warning);
+
+    public IdeWindowCandidate? ChooseIdeWindow(IReadOnlyList<IdeWindowCandidate> candidates)
+    {
+        var dialog = new WindowPickerDialog(candidates)
+        {
+            Owner = Application.Current.MainWindow
+        };
+        return dialog.ShowDialog() == true ? dialog.SelectedCandidate : null;
+    }
 }

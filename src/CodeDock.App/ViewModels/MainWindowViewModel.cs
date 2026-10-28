@@ -14,6 +14,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly ISessionStore _sessionStore;
     private readonly IFolderPicker _folderPicker;
     private readonly IUserDialogService _dialogService;
+    private readonly IIdeWorkspaceService _ideWorkspaceService;
     private readonly ILogger<MainWindowViewModel> _logger;
     private readonly SemaphoreSlim _sessionSaveLock = new(1, 1);
     private SessionState _session = new();
@@ -24,12 +25,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ISessionStore sessionStore,
         IFolderPicker folderPicker,
         IUserDialogService dialogService,
+        IIdeWorkspaceService ideWorkspaceService,
         ILogger<MainWindowViewModel> logger)
     {
         _registry = registry;
         _sessionStore = sessionStore;
         _folderPicker = folderPicker;
         _dialogService = dialogService;
+        _ideWorkspaceService = ideWorkspaceService;
         _logger = logger;
     }
 
@@ -196,6 +199,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task SetPreferredEnvironmentAsync(ProjectTabViewModel project)
     {
+        _ideWorkspaceService.ClearAssociation(project.Id);
+        project.WindowHandle = null;
+        project.IdeStatus = "Ready to launch";
         var result = await _registry.SetPreferredEnvironmentAsync(project.Id, project.PreferredEnvironment);
         if (result.IsSuccess)
         {
@@ -206,6 +212,97 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         _dialogService.ShowWarning(result.Error ?? "The preferred development environment could not be saved.");
+    }
+
+    [RelayCommand]
+    private async Task OpenWorkspaceIdeAsync(ProjectTabViewModel? project)
+    {
+        project ??= SelectedProject;
+        if (project is null || project.IsIdeBusy)
+        {
+            return;
+        }
+
+        var model = _registry.Projects.FirstOrDefault(item => item.Id == project.Id);
+        if (model is null)
+        {
+            _dialogService.ShowWarning("The project no longer exists.");
+            return;
+        }
+
+        project.IsIdeBusy = true;
+        project.IdeStatus = "Detecting and launching IDE…";
+        StatusMessage = $"Opening {project.Name}…";
+
+        try
+        {
+            var result = await _ideWorkspaceService.OpenOrActivateAsync(model);
+            if (result.Status is IdeOperationStatus.Ambiguous or IdeOperationStatus.LaunchedWithoutAssociation
+                && result.Candidates is { Count: > 0 })
+            {
+                var selected = _dialogService.ChooseIdeWindow(result.Candidates);
+                if (selected is not null)
+                {
+                    result = _ideWorkspaceService.AssociateAndActivate(model, selected);
+                }
+            }
+
+            project.WindowHandle = result.WindowHandle ?? _ideWorkspaceService.GetAssociatedWindow(project.Id);
+            project.IdeStatus = result.Message;
+            StatusMessage = result.Message;
+
+            if (result.Status is IdeOperationStatus.Failed or IdeOperationStatus.NotInstalled)
+            {
+                _dialogService.ShowWarning(result.Message);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            project.IdeStatus = "IDE operation cancelled";
+        }
+        catch (Exception exception)
+        {
+            HandleFailure(exception, "The IDE operation failed.");
+            project.IdeStatus = "IDE operation failed";
+        }
+        finally
+        {
+            project.IsIdeBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void AssociateExistingIde(ProjectTabViewModel? project)
+    {
+        project ??= SelectedProject;
+        if (project is null)
+        {
+            return;
+        }
+
+        var model = _registry.Projects.FirstOrDefault(item => item.Id == project.Id);
+        if (model is null)
+        {
+            return;
+        }
+
+        var candidates = _ideWorkspaceService.GetCandidates(model.PreferredEnvironment);
+        if (candidates.Count == 0)
+        {
+            _dialogService.ShowWarning("No visible windows were found for the selected development environment.");
+            return;
+        }
+
+        var selected = _dialogService.ChooseIdeWindow(candidates);
+        if (selected is null)
+        {
+            return;
+        }
+
+        var result = _ideWorkspaceService.AssociateAndActivate(model, selected);
+        project.WindowHandle = result.WindowHandle;
+        project.IdeStatus = result.Message;
+        StatusMessage = result.Message;
     }
 
     public void SelectNextProject(bool backwards)

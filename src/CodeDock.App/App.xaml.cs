@@ -5,6 +5,8 @@ using CodeDock.App.Views;
 using CodeDock.Core.Interfaces;
 using CodeDock.Core.Services;
 using CodeDock.Infrastructure.Persistence;
+using CodeDock.Infrastructure.VSCode;
+using CodeDock.Infrastructure.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -55,6 +57,11 @@ public partial class App : Application
         services.AddSingleton<ISessionStore, SessionJsonStore>();
         services.AddSingleton<IProjectPathValidator, ProjectPathValidator>();
         services.AddSingleton<IProjectRegistry, ProjectRegistry>();
+        services.AddSingleton<WindowAssociationResolver>();
+        services.AddSingleton<IIdeLocator, WindowsIdeLocator>();
+        services.AddSingleton<IIdeLauncher, WindowsIdeLauncher>();
+        services.AddSingleton<IDesktopWindowService, Win32DesktopWindowService>();
+        services.AddSingleton<IIdeWorkspaceService, IdeWorkspaceService>();
         services.AddSingleton<IFolderPicker, FolderPicker>();
         services.AddSingleton<IUserDialogService, UserDialogService>();
         services.AddSingleton<MainWindowViewModel>();

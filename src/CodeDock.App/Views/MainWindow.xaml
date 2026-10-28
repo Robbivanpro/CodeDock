@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:vm="clr-namespace:CodeDock.App.ViewModels"
+        xmlns:controls="clr-namespace:CodeDock.App.Controls"
         xmlns:models="clr-namespace:CodeDock.Core.Models;assembly=CodeDock.Core"
         Title="CodeDock"
         Icon="/Assets/CodeDock.Mark.png"
@@ -244,6 +245,9 @@
                             <DataTrigger Binding="{Binding}" Value="{x:Null}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                             </DataTrigger>
+                            <DataTrigger Binding="{Binding IsEmbedded}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </Grid.Style>
@@ -393,16 +397,68 @@
                             </Border>
                             <StackPanel Grid.Column="1">
                                 <TextBlock Text="IDE CONTROL" Foreground="{StaticResource TextMutedBrush}" FontSize="9" FontWeight="Bold" />
-                                <TextBlock Text="Coming next" FontSize="15" FontWeight="SemiBold" Margin="0,5,0,3" />
-                                <TextBlock Text="Launch and reliably recall the correct VS Code or Visual Studio window."
+                                <TextBlock Text="Launch or recall" FontSize="15" FontWeight="SemiBold" Margin="0,5,0,3" />
+                                <TextBlock Text="{Binding IdeStatus}"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            FontSize="11"
                                            LineHeight="17"
                                            TextWrapping="Wrap" />
+                                <Button Style="{StaticResource PrimaryButton}"
+                                        Content="Open / focus IDE"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,14,0,0"
+                                        Command="{Binding DataContext.OpenWorkspaceIdeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}" />
+                                <Button Content="Embed experimentally"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,9,0,0"
+                                        Click="OnEmbedIdeClick" />
+                                <Button Style="{StaticResource GhostButton}"
+                                        Content="Associate existing window"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,7,0,0"
+                                        Command="{Binding DataContext.AssociateExistingIdeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}" />
                             </StackPanel>
                         </Grid>
                     </Border>
                 </StackPanel>
+            </Grid>
+
+            <Grid x:Name="EmbeddedWorkspace" DataContext="{Binding SelectedProject}">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsEmbedded}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="46" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource StrokeBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10,10,0,0"
+                        Padding="14,7">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Padding="8,4" Background="#342350" CornerRadius="10">
+                                <TextBlock Text="EXPERIMENTAL EMBED" Foreground="#C4A7FF" FontSize="9" FontWeight="Bold" />
+                            </Border>
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="12,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button Content="Return to dashboard" HorizontalAlignment="Right" Click="OnExitEmbeddedClick" />
+                    </Grid>
+                </Border>
+                <Border Grid.Row="1" Background="#080A0E" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1,0,1,1">
+                    <controls:ExternalWindowHost x:Name="ExternalIdeHost"
+                                                 WindowHandle="{Binding EmbeddedWindowHandle, TargetNullValue=0}" />
+                </Border>
             </Grid>
         </Grid>
 
