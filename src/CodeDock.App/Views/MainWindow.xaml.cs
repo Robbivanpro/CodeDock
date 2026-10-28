@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using CodeDock.App.ViewModels;
 using CodeDock.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -75,9 +76,20 @@ public partial class MainWindow : Window
 
     private void OnTabPreviewMouseMove(object sender, MouseEventArgs e)
     {
-        if (e.LeftButton == MouseButtonState.Pressed && sender is TabItem { DataContext: ProjectTabViewModel project })
+        if (e.LeftButton == MouseButtonState.Pressed
+            && FindVisualParent<Button>(e.OriginalSource as DependencyObject) is null
+            && sender is TabItem { DataContext: ProjectTabViewModel project })
         {
             DragDrop.DoDragDrop((DependencyObject)sender, project, DragDropEffects.Move);
+        }
+    }
+
+    private async void OnRemoveProjectClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            await ViewModel.RemoveProjectCommand.ExecuteAsync(project);
+            e.Handled = true;
         }
     }
 
@@ -125,5 +137,20 @@ public partial class MainWindow : Window
             ViewModel.SelectNextProject(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
             e.Handled = true;
         }
+    }
+
+    private static T? FindVisualParent<T>(DependencyObject? child) where T : DependencyObject
+    {
+        while (child is not null)
+        {
+            if (child is T match)
+            {
+                return match;
+            }
+
+            child = VisualTreeHelper.GetParent(child);
+        }
+
+        return null;
     }
 }

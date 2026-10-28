@@ -1,2 +1,2 @@
 @echo off
-start "CodeDock" "%~dp0publish\win-x64-final\CodeDock.App.exe"
+start "CodeDock" "%~dp0publish\win-x64-tabsfix\CodeDock.App.exe"

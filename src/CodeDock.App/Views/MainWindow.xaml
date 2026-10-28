@@ -177,8 +177,7 @@
                                         Foreground="{StaticResource TextMutedBrush}"
                                         FontSize="15"
                                         ToolTip="Remove tab"
-                                        Command="{Binding DataContext.RemoveProjectCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding}" />
+                                        Click="OnRemoveProjectClick" />
                             </StackPanel>
                         </DataTemplate>
                     </TabControl.ItemTemplate>
