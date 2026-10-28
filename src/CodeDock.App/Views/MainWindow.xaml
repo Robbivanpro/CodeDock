@@ -56,9 +56,15 @@
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                    <Button Style="{StaticResource WindowButton}" Content="−" ToolTip="Minimize" Click="OnMinimizeClick" />
-                    <Button Style="{StaticResource WindowButton}" Content="□" ToolTip="Maximize" Click="OnMaximizeClick" />
-                    <Button x:Name="CloseWindowButton" Style="{StaticResource WindowButton}" Content="×" ToolTip="Close" Click="OnCloseClick" />
+                    <Button Style="{StaticResource WindowButton}" ToolTip="Minimize" Click="OnMinimizeClick">
+                        <Path Width="11" Height="1" Data="M 0,0.5 L 11,0.5" Stroke="{StaticResource TextBrush}" StrokeThickness="1" SnapsToDevicePixels="True" />
+                    </Button>
+                    <Button Style="{StaticResource WindowButton}" ToolTip="Maximize" Click="OnMaximizeClick">
+                        <Path Width="10" Height="10" Data="M 0.5,0.5 L 9.5,0.5 9.5,9.5 0.5,9.5 Z" Stroke="{StaticResource TextBrush}" StrokeThickness="1" Fill="Transparent" SnapsToDevicePixels="True" />
+                    </Button>
+                    <Button x:Name="CloseWindowButton" Style="{StaticResource WindowButton}" ToolTip="Close" Click="OnCloseClick">
+                        <Path Width="10" Height="10" Data="M 0.8,0.8 L 9.2,9.2 M 9.2,0.8 L 0.8,9.2" Stroke="{StaticResource TextBrush}" StrokeThickness="1.2" SnapsToDevicePixels="True" />
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
