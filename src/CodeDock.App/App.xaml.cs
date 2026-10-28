@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using CodeDock.App.Services;
 using CodeDock.App.ViewModels;
 using CodeDock.App.Views;
@@ -16,6 +17,13 @@ namespace CodeDock.App;
 public partial class App : Application
 {
     private ServiceProvider? _services;
+
+    public App()
+    {
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+    }
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -45,8 +53,41 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        DispatcherUnhandledException -= OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+        AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
         _services?.Dispose();
         base.OnExit(e);
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        _services?.GetService<ILogger<App>>()?.LogCritical(e.Exception, "Unhandled CodeDock UI exception");
+        e.Handled = true;
+
+        MessageBox.Show(
+            MainWindow,
+            $"CodeDock recovered from an interface error. Your IDE was not closed.\n\n{e.Exception.Message}",
+            "CodeDock recovered",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        _services?.GetService<ILogger<App>>()?.LogError(e.Exception, "Unobserved CodeDock background task exception");
+        e.SetObserved();
+    }
+
+    private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception exception)
+        {
+            _services?.GetService<ILogger<App>>()?.LogCritical(
+                exception,
+                "Fatal CodeDock exception; terminating: {IsTerminating}",
+                e.IsTerminating);
+        }
     }
 
     private static ServiceProvider ConfigureServices()

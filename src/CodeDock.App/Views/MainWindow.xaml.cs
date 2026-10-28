@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly ILogger<MainWindow> _logger;
     private readonly IUserDialogService _dialogService;
     private bool _shutdownCompleted;
+    private bool _tabDragPending;
+    private Point _tabDragStart;
 
     public MainWindow(ILogger<MainWindow> logger, IUserDialogService dialogService)
     {
@@ -67,37 +69,52 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnProjectNameLostFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (sender is TextBox { DataContext: ProjectTabViewModel project })
-        {
-            await ViewModel.CommitProjectNameAsync(project);
-        }
-    }
-
-    private void OnProjectNameKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter && sender is TextBox textBox)
-        {
-            Keyboard.ClearFocus();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Escape && sender is TextBox { DataContext: ProjectTabViewModel project })
-        {
-            project.RestoreName();
-            Keyboard.ClearFocus();
-            e.Handled = true;
-        }
-    }
+    private void OnTabPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
+        _tabDragStart = e.GetPosition(ProjectTabs);
 
     private void OnTabPreviewMouseMove(object sender, MouseEventArgs e)
     {
-        if (e.LeftButton == MouseButtonState.Pressed
-            && FindVisualParent<Button>(e.OriginalSource as DependencyObject) is null
-            && sender is ListBoxItem { DataContext: ProjectTabViewModel project })
+        if (_tabDragPending
+            || e.LeftButton != MouseButtonState.Pressed
+            || ViewModel.IsBusy
+            || sender is not ListBoxItem { DataContext: ProjectTabViewModel project }
+            || project.IsIdeBusy
+            || FindVisualParent<Button>(e.OriginalSource as DependencyObject) is not null
+            || FindVisualParent<TextBox>(e.OriginalSource as DependencyObject) is not null)
         {
-            DragDrop.DoDragDrop((DependencyObject)sender, project, DragDropEffects.Move);
+            return;
         }
+
+        var currentPosition = e.GetPosition(ProjectTabs);
+        if (Math.Abs(currentPosition.X - _tabDragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(currentPosition.Y - _tabDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        // Starting OLE drag/drop directly inside WPF's input staging callback can
+        // re-enter the dispatcher while its processing is suspended. Defer it to
+        // the next dispatcher turn and allow only one pending tab drag at a time.
+        _tabDragPending = true;
+        e.Handled = true;
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                if (Mouse.LeftButton == MouseButtonState.Pressed && !ViewModel.IsBusy && !project.IsIdeBusy)
+                {
+                    DragDrop.DoDragDrop((DependencyObject)sender, project, DragDropEffects.Move);
+                }
+            }
+            catch (InvalidOperationException exception)
+            {
+                _logger.LogWarning(exception, "Tab drag was ignored because the WPF dispatcher was not ready");
+            }
+            finally
+            {
+                _tabDragPending = false;
+            }
+        }, DispatcherPriority.Background);
     }
 
     private async void OnRemoveProjectClick(object sender, RoutedEventArgs e)
@@ -221,27 +238,59 @@ public partial class MainWindow : Window
 
         ViewModel.BeginEmbedding(project);
         project.IsEmbedded = true;
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        var host = FindProjectHost(project);
+        var host = await WaitForProjectHostAsync(project, TimeSpan.FromSeconds(3));
         if (host is null || !host.IsAttached)
         {
             project.IsEmbedded = false;
             ViewModel.SetEmbeddedState(project, false);
+            var embeddingError = host?.LastError
+                ?? (host is null
+                    ? "The workspace host was not created before the embedding timeout."
+                    : "The workspace host was created, but the IDE window was not attached.");
             MessageBox.Show(
                 this,
-                host?.LastError ?? "The IDE window could not be attached to its workspace host.",
+                embeddingError,
                 "CodeDock embedding error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             _logger.LogWarning(
-                "Workspace {WorkspaceId} embedding failed: {Error}",
+                "Workspace {WorkspaceId} embedding failed; host found {HostFound}; attached {Attached}; HWND {WindowHandle}; error {Error}",
                 project.Id,
-                host?.LastError ?? "Host was not created or attached");
+                host is not null,
+                host?.IsAttached ?? false,
+                project.WindowHandle,
+                embeddingError);
             return;
         }
 
         ViewModel.SetEmbeddedState(project, true);
         _logger.LogInformation("Workspace {WorkspaceId} embedded successfully", project.Id);
+    }
+
+    private async Task<ExternalWindowHost?> WaitForProjectHostAsync(
+        ProjectTabViewModel project,
+        TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        ExternalWindowHost? host = null;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await Dispatcher.InvokeAsync(() => EmbeddedHosts.UpdateLayout(), DispatcherPriority.Render);
+            host = FindProjectHost(project);
+            if (host is not null)
+            {
+                host.UpdateLayout();
+                if (host.IsAttached || host.LastError is not null)
+                {
+                    return host;
+                }
+            }
+
+            await Task.Delay(50);
+        }
+
+        return host;
     }
 
     private void OnExitEmbeddedClick(object sender, RoutedEventArgs e)

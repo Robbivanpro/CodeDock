@@ -99,6 +99,7 @@
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="0,0,7,0" />
                             <Setter Property="VerticalContentAlignment" Value="Center" />
+                            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="OnTabPreviewMouseLeftButtonDown" />
                             <EventSetter Event="PreviewMouseMove" Handler="OnTabPreviewMouseMove" />
                             <EventSetter Event="Drop" Handler="OnTabDrop" />
                             <Setter Property="Template">
@@ -163,16 +164,15 @@
                                         </TextBlock.Style>
                                     </TextBlock>
                                 </Border>
-                                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
-                                         MinWidth="70"
-                                         MaxWidth="175"
-                                         Margin="8,0,2,0"
-                                         Padding="1"
-                                         FontSize="12"
-                                         FontWeight="SemiBold"
-                                         ToolTip="Click to rename"
-                                         LostKeyboardFocus="OnProjectNameLostFocus"
-                                         KeyDown="OnProjectNameKeyDown" />
+                                <TextBlock Text="{Binding Name}"
+                                           MinWidth="70"
+                                           MaxWidth="175"
+                                           Margin="8,0,2,0"
+                                           Padding="1"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
                                 <Ellipse Width="6" Height="6" Margin="7,0,3,0">
                                     <Ellipse.Style>
                                         <Style TargetType="Ellipse">
@@ -495,6 +495,77 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </Grid>
+
+        <Border Grid.Row="1"
+                Grid.RowSpan="2"
+                Panel.ZIndex="100"
+                Background="#C20A0D13"
+                Cursor="Wait">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding SelectedProject.IsIdeBusy}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MinWidth="250"
+                    Padding="28,22"
+                    Background="#F2181D28"
+                    BorderBrush="{StaticResource StrokeBrightBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel HorizontalAlignment="Center">
+                    <Path Width="38"
+                          Height="38"
+                          Data="M 19,3 A 16,16 0 1 1 3,19"
+                          Stretch="None"
+                          Stroke="{StaticResource CyanBrush}"
+                          StrokeThickness="3"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          RenderTransformOrigin="0.5,0.5">
+                        <Path.RenderTransform>
+                            <RotateTransform x:Name="LoadingSpinnerRotation" />
+                        </Path.RenderTransform>
+                        <Path.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="LoadingSpinnerRotation"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         From="0"
+                                                         To="360"
+                                                         Duration="0:0:0.8"
+                                                         RepeatBehavior="Forever" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Path.Triggers>
+                    </Path>
+                    <TextBlock Text="Working…"
+                               Margin="0,14,0,4"
+                               HorizontalAlignment="Center"
+                               FontSize="14"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding StatusMessage}"
+                               MaxWidth="360"
+                               HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="11"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </Border>
 
         <Border Grid.Row="3" Background="#0D1016" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
             <Grid Margin="14,0">
