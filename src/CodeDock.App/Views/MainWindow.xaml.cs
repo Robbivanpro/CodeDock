@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using CodeDock.App.ViewModels;
+using CodeDock.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace CodeDock.App.Views;
@@ -92,13 +93,30 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private async void OnPreferredEnvironmentChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnSelectVSCodeClick(object sender, RoutedEventArgs e)
     {
-        if (sender is ComboBox { DataContext: ProjectTabViewModel project, IsLoaded: true })
+        if (sender is Button { DataContext: ProjectTabViewModel project })
         {
+            project.PreferredEnvironment = DevelopmentEnvironment.VisualStudioCode;
             await ViewModel.SetPreferredEnvironmentAsync(project);
         }
     }
+
+    private async void OnSelectVisualStudioClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            project.PreferredEnvironment = DevelopmentEnvironment.VisualStudio2022;
+            await ViewModel.SetPreferredEnvironmentAsync(project);
+        }
+    }
+
+    private void OnMinimizeClick(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void OnMaximizeClick(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
