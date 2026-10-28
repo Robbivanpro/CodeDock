@@ -477,7 +477,14 @@
                                         </Border>
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="12,0,0,0" VerticalAlignment="Center" />
                                     </StackPanel>
-                                    <Button Content="Return to dashboard" HorizontalAlignment="Right" Click="OnExitEmbeddedClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="Return to dashboard"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Height="30"
+                                            MinWidth="142"
+                                            Padding="12,4"
+                                            Click="OnExitEmbeddedClick" />
                                 </Grid>
                             </Border>
                             <Border Grid.Row="1" Background="#080A0E" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1,0,1,1">
