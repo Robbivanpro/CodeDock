@@ -51,7 +51,7 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
             }
 
             return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(
-                new IdeLaunchReceipt(process.Id, processStartTimeUtcTicks)));
+                new IdeLaunchReceipt(process.Id, processStartTimeUtcTicks, targetResult.Value)));
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or IOException)
         {

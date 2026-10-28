@@ -248,6 +248,28 @@ public sealed class IdeWorkspaceServiceTests
         Assert.Equal(DevelopmentEnvironment.VisualStudioCode, launchedEnvironment);
     }
 
+    [Fact]
+    public async Task OpenOrActivateAsync_ReturnsResolvedLaunchTargetForPersistence()
+    {
+        var windows = new FakeDesktopWindowService();
+        const string launchTarget = @"C:\work\Product.sln";
+        var launcher = new FakeIdeLauncher(project =>
+        {
+            var candidate = windows.AddWindow(951, 9501);
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(
+                new IdeLaunchReceipt(
+                    candidate.ProcessId,
+                    candidate.ProcessStartTimeUtcTicks,
+                    launchTarget)));
+        });
+        var service = CreateService(windows, launcher);
+
+        var result = await service.OpenOrActivateAsync(CreateProject());
+
+        Assert.Equal(IdeOperationStatus.LaunchedAndAssociated, result.Status);
+        Assert.Equal(launchTarget, result.LaunchTargetPath);
+    }
+
     private static IdeWorkspaceService CreateService(FakeDesktopWindowService windows, FakeIdeLauncher launcher) =>
         new(
             new FakeIdeLocator(),

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using CodeDock.App.Services;
 using CodeDock.Core.Interfaces;
 using CodeDock.Core.Models;
@@ -276,13 +277,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             var result = await _ideWorkspaceService.OpenOrActivateAsync(model);
+            var discoveredLaunchTarget = result.LaunchTargetPath;
             if (result.Status is IdeOperationStatus.Ambiguous or IdeOperationStatus.LaunchedWithoutAssociation
                 && result.Candidates is { Count: > 0 })
             {
                 var selected = _dialogService.ChooseIdeWindow(result.Candidates);
                 if (selected is not null)
                 {
-                    result = _ideWorkspaceService.AssociateAndActivate(model, selected);
+                    result = _ideWorkspaceService.AssociateAndActivate(model, selected) with
+                    {
+                        LaunchTargetPath = discoveredLaunchTarget
+                    };
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.LaunchTargetPath)
+                && File.Exists(result.LaunchTargetPath)
+                && !string.Equals(
+                    model.WorkspaceFilePath,
+                    result.LaunchTargetPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                model.WorkspaceFilePath = result.LaunchTargetPath;
+                var saveTargetResult = await _registry.UpdateProjectAsync(model);
+                if (!saveTargetResult.IsSuccess)
+                {
+                    _logger.LogWarning(
+                        "Could not persist launch target {LaunchTargetPath} for workspace {WorkspaceId}: {Error}",
+                        result.LaunchTargetPath,
+                        project.Id,
+                        saveTargetResult.Error);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Saved launch target {LaunchTargetPath} for workspace {WorkspaceId}",
+                        result.LaunchTargetPath,
+                        project.Id);
                 }
             }
 

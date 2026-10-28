@@ -1,6 +1,9 @@
 namespace CodeDock.Core.Models;
 
-public sealed record IdeLaunchReceipt(int ProcessId, long ProcessStartTimeUtcTicks)
+public sealed record IdeLaunchReceipt(
+    int ProcessId,
+    long ProcessStartTimeUtcTicks,
+    string? LaunchTargetPath = null)
 {
     public bool Matches(IdeWindowCandidate candidate) =>
         ProcessId > 0

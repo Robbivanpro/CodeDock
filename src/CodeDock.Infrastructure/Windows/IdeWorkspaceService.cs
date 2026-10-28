@@ -98,6 +98,8 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
                         Candidates: [detected]);
                 }
 
+                association = association with { LaunchTargetPath = launchResult.Value?.LaunchTargetPath };
+
                 if (association.Status == IdeOperationStatus.LaunchedAndAssociated
                     && association.Candidates is [var candidate]
                     && TryClaim(session, candidate, out claimError))
