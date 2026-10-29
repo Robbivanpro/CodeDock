@@ -409,11 +409,10 @@
                                            LineHeight="17"
                                            TextWrapping="Wrap" />
                                 <Button Style="{StaticResource PrimaryButton}"
-                                        Content="Open / focus IDE"
+                                        Content="Open in CodeDock"
                                         HorizontalAlignment="Left"
                                         Margin="0,14,0,0"
-                                        Command="{Binding DataContext.OpenWorkspaceIdeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding}" />
+                                        Click="OnOpenEmbeddedIdeClick" />
                                 <Button Content="Embed experimentally"
                                         HorizontalAlignment="Left"
                                         Margin="0,9,0,0"
@@ -506,9 +505,6 @@
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                            <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding SelectedProject.IsIdeBusy}" Value="True">
                             <Setter Property="Visibility" Value="Visible" />
                         </DataTrigger>
                     </Style.Triggers>

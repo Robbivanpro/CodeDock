@@ -22,6 +22,15 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
                 UseShellExecute = false
             };
 
+            // VS Code tolerates being created minimized and restored after it
+            // becomes a child window. Visual Studio's WPF shell must complete
+            // its initial top-level layout first or its client area can remain
+            // permanently blank after reparenting.
+            if (project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode)
+            {
+                startInfo.WindowStyle = ProcessWindowStyle.Minimized;
+            }
+
             var targetResult = ResolveTarget(project);
             if (!targetResult.IsSuccess || targetResult.Value is null)
             {

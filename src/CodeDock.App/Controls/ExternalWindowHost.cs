@@ -212,10 +212,17 @@ public sealed class ExternalWindowHost : HwndHost
             return true;
         }
 
-        NativeMethods.SetParent(_externalHandle, _originalParent);
-        if (NativeMethods.GetParent(_externalHandle) != _originalParent)
+        // SetParent does not change WS_CHILD/WS_POPUP.  In particular, when a
+        // top-level window is restored to the desktop, GetParent can still
+        // report the desktop HWND while WS_CHILD is present.  Restore the
+        // styles before validating the parent or every normal top-level IDE
+        // window can be reported as a failed detach with Win32 error 0.
+        Marshal.SetLastPInvokeError(0);
+        var previousParent = NativeMethods.SetParent(_externalHandle, _originalParent);
+        var parentError = Marshal.GetLastWin32Error();
+        if (previousParent == IntPtr.Zero && parentError != 0)
         {
-            LastError = $"The IDE window could not be detached from CodeDock. Error {Marshal.GetLastWin32Error()}.";
+            LastError = $"The IDE window could not be detached from CodeDock. Error {parentError}.";
             return false;
         }
 
@@ -228,6 +235,12 @@ public sealed class ExternalWindowHost : HwndHost
         if (!styleRestored || !extendedStyleRestored)
         {
             LastError = styleError ?? extendedStyleError;
+            return false;
+        }
+
+        if (NativeMethods.GetParent(_externalHandle) != _originalParent)
+        {
+            LastError = "The IDE window could not be restored to its original parent.";
             return false;
         }
 

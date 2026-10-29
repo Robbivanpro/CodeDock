@@ -141,17 +141,27 @@ public partial class MainWindow : Window
             }
 
             var wasEmbedded = project.IsEmbedded;
-            if (!TryDetachProject(project, out var error))
+            bool removed;
+            if (closeIde)
             {
-                MessageBox.Show(this, error, "CodeDock detach error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                // WM_CLOSE is valid while the IDE is hosted. Closing it first
+                // avoids an unnecessary detach/restore/re-close cycle and also
+                // lets the host observe the HWND disappearing normally.
+                removed = await ViewModel.CloseProjectAndIdeAsync(project);
+            }
+            else
+            {
+                if (!TryDetachProject(project, out var error))
+                {
+                    MessageBox.Show(this, error, "CodeDock detach error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                ViewModel.SetEmbeddedState(project, false);
+                removed = await ViewModel.RemoveTabOnlyAsync(project);
             }
 
-            ViewModel.SetEmbeddedState(project, false);
-            var removed = closeIde
-                ? await ViewModel.CloseProjectAndIdeAsync(project)
-                : await ViewModel.RemoveTabOnlyAsync(project);
-            if (!removed && wasEmbedded && project.HasAssociatedWindow)
+            if (!removed && wasEmbedded && project.HasAssociatedWindow && !project.IsEmbedded)
             {
                 ViewModel.SetEmbeddedState(project, true);
             }
@@ -218,6 +228,22 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 
+    private async void OnOpenEmbeddedIdeClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: ProjectTabViewModel project }
+            || project.IsIdeBusy
+            || ViewModel.IsBusy)
+        {
+            return;
+        }
+
+        await ViewModel.OpenWorkspaceIdeAsync(project);
+        if (project.WindowHandle is not null)
+        {
+            await EmbedProjectAsync(project);
+        }
+    }
+
     private async void OnEmbedIdeClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: ProjectTabViewModel project })
@@ -234,6 +260,16 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
+        }
+
+        await EmbedProjectAsync(project);
+    }
+
+    private async Task<bool> EmbedProjectAsync(ProjectTabViewModel project)
+    {
+        if (project.IsEmbedded)
+        {
+            return true;
         }
 
         ViewModel.BeginEmbedding(project);
@@ -260,11 +296,12 @@ public partial class MainWindow : Window
                 host?.IsAttached ?? false,
                 project.WindowHandle,
                 embeddingError);
-            return;
+            return false;
         }
 
         ViewModel.SetEmbeddedState(project, true);
         _logger.LogInformation("Workspace {WorkspaceId} embedded successfully", project.Id);
+        return true;
     }
 
     private async Task<ExternalWindowHost?> WaitForProjectHostAsync(

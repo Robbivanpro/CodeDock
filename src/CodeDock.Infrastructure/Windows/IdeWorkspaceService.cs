@@ -405,16 +405,46 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
     {
         var existingHandles = before.Select(window => window.Handle).ToHashSet();
         var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        HashSet<long>? previousNewHandles = null;
+        var stableChecks = 0;
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            await Task.Delay(300, cancellationToken).ConfigureAwait(false);
             var current = _windowService.EnumerateIdeWindows(environment);
-            if (current.Any(window => !existingHandles.Contains(window.Handle)))
+            var newWindows = current.Where(window => !existingHandles.Contains(window.Handle)).ToList();
+            if (newWindows.Count > 0)
             {
-                await Task.Delay(600, cancellationToken).ConfigureAwait(false);
-                return _windowService.EnumerateIdeWindows(environment);
+                if (environment == DevelopmentEnvironment.VisualStudioCode)
+                {
+                    // Chromium can continue initializing after its top-level
+                    // HWND has already been moved into the CodeDock host.
+                    return current;
+                }
+
+                var newHandles = newWindows.Select(window => window.Handle).ToHashSet();
+                var sameWindows = previousNewHandles is not null && previousNewHandles.SetEquals(newHandles);
+                var allResponsive = newWindows.All(window => _windowService.IsWindowResponsive(window.Handle));
+                stableChecks = sameWindows && allResponsive ? stableChecks + 1 : allResponsive ? 1 : 0;
+                previousNewHandles = newHandles;
+
+                // Visual Studio starts answering window messages before its
+                // WPF shell has finished building the top-level composition.
+                // The first reparent can therefore produce a blank surface,
+                // while detaching and embedding the same HWND a few seconds
+                // later works. Keep the initial HWND top-level and responsive
+                // for about 4.5 seconds before the first association/embed.
+                if (stableChecks >= 30)
+                {
+                    _logger.LogInformation(
+                        "Visual Studio window became stable before association; HWNDs {WindowHandles}",
+                        string.Join(", ", newHandles));
+                    return current;
+                }
             }
+
+            await Task.Delay(
+                environment == DevelopmentEnvironment.VisualStudioCode ? 75 : 150,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return _windowService.EnumerateIdeWindows(environment);

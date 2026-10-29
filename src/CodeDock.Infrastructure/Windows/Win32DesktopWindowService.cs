@@ -12,6 +12,7 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
 {
     private const int SwRestore = 9;
     private const uint GwOwner = 4;
+    private const uint WmNull = 0x0000;
     private const uint WmClose = 0x0010;
     private const uint SmtoAbortIfHung = 0x0002;
     private readonly ILogger<Win32DesktopWindowService> _logger;
@@ -96,6 +97,20 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
             _logger.LogDebug(exception, "Could not validate IDE window {WindowHandle}", identity.Handle);
             return false;
         }
+    }
+
+    public bool IsWindowResponsive(long handle)
+    {
+        var window = new IntPtr(handle);
+        return NativeMethods.IsWindow(window)
+            && NativeMethods.SendMessageTimeout(
+                window,
+                WmNull,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                SmtoAbortIfHung,
+                150,
+                out _) != IntPtr.Zero;
     }
 
     public bool TryActivate(long handle)

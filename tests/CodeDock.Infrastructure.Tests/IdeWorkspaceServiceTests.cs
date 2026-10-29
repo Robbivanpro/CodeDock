@@ -270,6 +270,29 @@ public sealed class IdeWorkspaceServiceTests
         Assert.Equal(launchTarget, result.LaunchTargetPath);
     }
 
+    [Fact]
+    public async Task OpenOrActivateAsync_WaitsForStableResponsiveVisualStudioWindow()
+    {
+        var windows = new FakeDesktopWindowService();
+        var launcher = new FakeIdeLauncher(project =>
+        {
+            var candidate = windows.AddWindow(
+                991,
+                9901,
+                DevelopmentEnvironment.VisualStudio2022);
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(
+                new IdeLaunchReceipt(candidate.ProcessId, candidate.ProcessStartTimeUtcTicks)));
+        });
+        var service = CreateService(windows, launcher);
+        var project = CreateProject();
+        project.PreferredEnvironment = DevelopmentEnvironment.VisualStudio2022;
+
+        var result = await service.OpenOrActivateAsync(project);
+
+        Assert.Equal(IdeOperationStatus.LaunchedAndAssociated, result.Status);
+        Assert.True(windows.ResponsivenessChecks >= 30);
+    }
+
     private static IdeWorkspaceService CreateService(FakeDesktopWindowService windows, FakeIdeLauncher launcher) =>
         new(
             new FakeIdeLocator(),
@@ -338,13 +361,18 @@ public sealed class IdeWorkspaceServiceTests
 
         public bool AllowActivation { get; set; } = true;
 
-        public IdeWindowCandidate AddWindow(long handle, int processId)
+        public int ResponsivenessChecks { get; private set; }
+
+        public IdeWindowCandidate AddWindow(
+            long handle,
+            int processId,
+            DevelopmentEnvironment environment = DevelopmentEnvironment.VisualStudioCode)
         {
             var candidate = new IdeWindowCandidate(
                 handle,
                 processId,
                 $"Window {handle}",
-                DevelopmentEnvironment.VisualStudioCode,
+                environment,
                 processId * 10L);
             _windows[handle] = candidate;
             return candidate;
@@ -359,6 +387,12 @@ public sealed class IdeWorkspaceServiceTests
 
         public bool IsSameWindow(IdeWindowCandidate identity) =>
             _windows.TryGetValue(identity.Handle, out var current) && current == identity;
+
+        public bool IsWindowResponsive(long handle)
+        {
+            ResponsivenessChecks++;
+            return IsWindow(handle);
+        }
 
         public bool TryActivate(long handle) => AllowActivation && IsWindow(handle);
 

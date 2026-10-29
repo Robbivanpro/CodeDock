@@ -255,7 +255,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task OpenWorkspaceIdeAsync(ProjectTabViewModel? project)
+    public async Task OpenWorkspaceIdeAsync(ProjectTabViewModel? project)
     {
         project ??= SelectedProject;
         if (project is null || project.IsIdeBusy)

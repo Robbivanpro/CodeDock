@@ -10,6 +10,8 @@ public interface IDesktopWindowService
 
     bool IsSameWindow(IdeWindowCandidate identity);
 
+    bool IsWindowResponsive(long handle);
+
     bool TryActivate(long handle);
 
     Task<WindowCloseResult> RequestCloseAsync(
