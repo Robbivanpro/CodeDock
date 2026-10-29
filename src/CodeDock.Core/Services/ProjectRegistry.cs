@@ -39,9 +39,16 @@ public sealed class ProjectRegistry : IProjectRegistry
             return OperationResult<ProjectWorkspace>.Failure(validation.Error ?? "The project path is invalid.");
         }
 
-        if (_projects.Any(project => string.Equals(project.FolderPath, validation.Value, StringComparison.OrdinalIgnoreCase)))
+        var matchingProjects = _projects
+            .Where(project => string.Equals(project.FolderPath, validation.Value, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var availableEnvironment = Enum.GetValues<DevelopmentEnvironment>()
+            .FirstOrDefault(environment => matchingProjects.All(project => project.PreferredEnvironment != environment));
+        if (matchingProjects.Count >= Enum.GetValues<DevelopmentEnvironment>().Length
+            || matchingProjects.Any(project => project.PreferredEnvironment == availableEnvironment))
         {
-            return OperationResult<ProjectWorkspace>.Failure("This project is already in CodeDock.");
+            return OperationResult<ProjectWorkspace>.Failure(
+                "This folder already has tabs for both VS Code and Visual Studio 2022.");
         }
 
         var project = new ProjectWorkspace
@@ -49,7 +56,8 @@ public sealed class ProjectRegistry : IProjectRegistry
             Id = Guid.NewGuid(),
             Name = Path.GetFileName(validation.Value),
             FolderPath = validation.Value,
-            SortOrder = _projects.Count
+            SortOrder = _projects.Count,
+            PreferredEnvironment = availableEnvironment
         };
 
         _projects.Add(project);
@@ -115,6 +123,13 @@ public sealed class ProjectRegistry : IProjectRegistry
             return OperationResult.Failure("Project name cannot be empty.");
         }
 
+        if (_projects.Any(item => item.Id != project.Id
+            && item.PreferredEnvironment == project.PreferredEnvironment
+            && string.Equals(item.FolderPath, pathValidation.Value, StringComparison.OrdinalIgnoreCase)))
+        {
+            return OperationResult.Failure("This folder already has a tab for the selected development environment.");
+        }
+
         existing.Name = project.Name.Trim();
         existing.FolderPath = pathValidation.Value;
         existing.WorkspaceFilePath = project.WorkspaceFilePath;
@@ -141,9 +156,17 @@ public sealed class ProjectRegistry : IProjectRegistry
             return OperationResult.Failure("The selected development environment is not supported.");
         }
 
+        if (_projects.Any(item => item.Id != projectId
+            && item.PreferredEnvironment == environment
+            && string.Equals(item.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            return OperationResult.Failure("This folder already has a tab for the selected development environment.");
+        }
+
         if (project.PreferredEnvironment != environment)
         {
             project.PreferredEnvironment = environment;
+            project.WorkspaceFilePath = null;
             await SaveProjectsAsync(cancellationToken).ConfigureAwait(false);
         }
 

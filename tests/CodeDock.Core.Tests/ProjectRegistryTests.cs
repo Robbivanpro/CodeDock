@@ -25,16 +25,21 @@ public sealed class ProjectRegistryTests
     }
 
     [Fact]
-    public async Task AddProjectAsync_RejectsDuplicatePathsIgnoringCase()
+    public async Task AddProjectAsync_AllowsSamePathOncePerEnvironment()
     {
         var sut = new ProjectRegistry(new MemoryProjectStore(), new AcceptingPathValidator());
 
         var first = await sut.AddProjectAsync("C:\\Repos\\Backend");
-        var duplicate = await sut.AddProjectAsync("c:\\repos\\BACKEND");
+        var second = await sut.AddProjectAsync("c:\\repos\\BACKEND");
+        var duplicate = await sut.AddProjectAsync("C:\\REPOS\\backend");
 
         Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
         Assert.False(duplicate.IsSuccess);
-        Assert.Single(sut.Projects);
+        Assert.Equal(2, sut.Projects.Count);
+        Assert.Equal(
+            [DevelopmentEnvironment.VisualStudioCode, DevelopmentEnvironment.VisualStudio2022],
+            sut.Projects.Select(project => project.PreferredEnvironment));
     }
 
     [Fact]
@@ -93,6 +98,43 @@ public sealed class ProjectRegistryTests
         Assert.True(result.IsSuccess);
         Assert.Equal(DevelopmentEnvironment.VisualStudio2022, project.PreferredEnvironment);
         Assert.Equal(DevelopmentEnvironment.VisualStudio2022, Assert.Single(store.SavedProjects).PreferredEnvironment);
+    }
+
+    [Fact]
+    public async Task SetPreferredEnvironmentAsync_RejectsEnvironmentUsedBySameFolder()
+    {
+        var code = Project("Backend", "C:\\Backend", 0);
+        var visualStudio = Project("Backend", "C:\\Backend", 1);
+        visualStudio.PreferredEnvironment = DevelopmentEnvironment.VisualStudio2022;
+        var sut = new ProjectRegistry(
+            new MemoryProjectStore([code, visualStudio]),
+            new AcceptingPathValidator());
+        await sut.LoadProjectsAsync();
+
+        var result = await sut.SetPreferredEnvironmentAsync(
+            visualStudio.Id,
+            DevelopmentEnvironment.VisualStudioCode);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(DevelopmentEnvironment.VisualStudio2022, visualStudio.PreferredEnvironment);
+    }
+
+    [Fact]
+    public async Task SetPreferredEnvironmentAsync_ClearsLaunchTargetFromPreviousEnvironment()
+    {
+        var project = Project("Backend", "C:\\Backend", 0);
+        project.WorkspaceFilePath = "C:\\Backend\\Backend.code-workspace";
+        var sut = new ProjectRegistry(
+            new MemoryProjectStore([project]),
+            new AcceptingPathValidator());
+        await sut.LoadProjectsAsync();
+
+        var result = await sut.SetPreferredEnvironmentAsync(
+            project.Id,
+            DevelopmentEnvironment.VisualStudio2022);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(project.WorkspaceFilePath);
     }
 
     private static ProjectWorkspace Project(string name, string path, int order) => new()

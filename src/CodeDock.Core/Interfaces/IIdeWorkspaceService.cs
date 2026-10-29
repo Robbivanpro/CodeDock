@@ -4,6 +4,8 @@ namespace CodeDock.Core.Interfaces;
 
 public interface IIdeWorkspaceService
 {
+    IReadOnlyList<string> GetVisualStudioSolutions(ProjectWorkspace project);
+
     Task<IdeOperationResult> OpenOrActivateAsync(
         ProjectWorkspace project,
         CancellationToken cancellationToken = default);

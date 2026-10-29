@@ -27,7 +27,14 @@ public sealed partial class ProjectTabViewModel : ObservableObject
     private string _name;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SolutionDisplayName))]
     private DevelopmentEnvironment _preferredEnvironment;
+
+    [ObservableProperty]
+    private bool _isVisualStudioCodeAvailable = true;
+
+    [ObservableProperty]
+    private bool _isVisualStudioAvailable = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasAssociatedWindow))]
@@ -59,6 +66,14 @@ public sealed partial class ProjectTabViewModel : ObservableObject
     public bool HasAssociatedWindow => WindowHandle is not null;
 
     public long? EmbeddedWindowHandle => IsEmbedded ? WindowHandle : null;
+
+    public string SolutionDisplayName => PreferredEnvironment != DevelopmentEnvironment.VisualStudio2022
+        ? "Folder workspace"
+        : string.IsNullOrWhiteSpace(_project.WorkspaceFilePath)
+            ? "Choose on first open"
+            : Path.GetFileName(_project.WorkspaceFilePath);
+
+    public void RefreshLaunchTarget() => OnPropertyChanged(nameof(SolutionDisplayName));
 
     public void RestoreName() => Name = _project.Name;
 

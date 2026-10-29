@@ -1,0 +1,57 @@
+<Window x:Class="CodeDock.App.Views.SolutionPickerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Choose Visual Studio solution"
+        Width="680"
+        Height="420"
+        MinWidth="540"
+        MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="{StaticResource CanvasBrush}"
+        Foreground="{StaticResource TextBrush}">
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Choose the solution to open" FontSize="22" FontWeight="SemiBold" />
+        <TextBlock Grid.Row="1"
+                   Text="CodeDock will remember this choice for the current Visual Studio tab."
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   TextWrapping="Wrap"
+                   Margin="0,7,0,16" />
+
+        <ListBox Grid.Row="2"
+                 ItemsSource="{Binding Solutions}"
+                 SelectedItem="{Binding SelectedSolution}"
+                 MouseDoubleClick="OnSolutionDoubleClick"
+                 Background="{StaticResource SurfaceBrush}"
+                 BorderBrush="{StaticResource StrokeBrush}"
+                 BorderThickness="1">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="10,8">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding RelativePath}"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   FontSize="11"
+                                   Margin="0,4,0,0"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Cancel" Margin="0,0,9,0" IsCancel="True" />
+            <Button Style="{StaticResource PrimaryButton}"
+                    Content="Use this solution"
+                    IsDefault="True"
+                    Click="OnUseSolutionClick" />
+        </StackPanel>
+    </Grid>
+</Window>

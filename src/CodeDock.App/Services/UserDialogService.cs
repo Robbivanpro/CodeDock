@@ -32,4 +32,13 @@ public sealed class UserDialogService : IUserDialogService
         };
         return dialog.ShowDialog() == true ? dialog.SelectedCandidate : null;
     }
+
+    public string? ChooseVisualStudioSolution(string workspaceFolder, IReadOnlyList<string> solutions)
+    {
+        var dialog = new SolutionPickerDialog(workspaceFolder, solutions)
+        {
+            Owner = Application.Current.MainWindow
+        };
+        return dialog.ShowDialog() == true ? dialog.SelectedSolution?.FullPath : null;
+    }
 }

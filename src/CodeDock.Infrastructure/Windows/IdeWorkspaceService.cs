@@ -31,6 +31,9 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
         _logger = logger;
     }
 
+    public IReadOnlyList<string> GetVisualStudioSolutions(ProjectWorkspace project) =>
+        _launcher.FindVisualStudioSolutions(project);
+
     public async Task<IdeOperationResult> OpenOrActivateAsync(
         ProjectWorkspace project,
         CancellationToken cancellationToken = default)

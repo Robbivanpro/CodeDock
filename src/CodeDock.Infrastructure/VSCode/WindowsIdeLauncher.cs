@@ -7,6 +7,9 @@ namespace CodeDock.Infrastructure.VSCode;
 
 public sealed class WindowsIdeLauncher : IIdeLauncher
 {
+    public IReadOnlyList<string> FindVisualStudioSolutions(ProjectWorkspace project) =>
+        FindNearestSolutions(project.FolderPath);
+
     public Task<OperationResult<IdeLaunchReceipt>> LaunchAsync(
         ProjectWorkspace project,
         IdeInstallation installation,
@@ -68,7 +71,7 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
         }
     }
 
-    private static OperationResult<string> ResolveTarget(ProjectWorkspace project)
+    private OperationResult<string> ResolveTarget(ProjectWorkspace project)
     {
         if (project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode)
         {
@@ -85,7 +88,7 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
             return OperationResult<string>.Success(project.WorkspaceFilePath);
         }
 
-        var solutions = FindNearestSolutions(project.FolderPath);
+        var solutions = FindVisualStudioSolutions(project);
 
         return solutions.Count switch
         {

@@ -11,4 +11,6 @@ public interface IUserDialogService
     void ShowWarning(string message);
 
     IdeWindowCandidate? ChooseIdeWindow(IReadOnlyList<IdeWindowCandidate> candidates);
+
+    string? ChooseVisualStudioSolution(string workspaceFolder, IReadOnlyList<string> solutions);
 }

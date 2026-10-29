@@ -331,6 +331,8 @@ public sealed class IdeWorkspaceServiceTests
 
         public int MaximumConcurrency => _maximumConcurrency;
 
+        public IReadOnlyList<string> FindVisualStudioSolutions(ProjectWorkspace project) => [];
+
         public async Task<OperationResult<IdeLaunchReceipt>> LaunchAsync(
             ProjectWorkspace project,
             IdeInstallation installation,

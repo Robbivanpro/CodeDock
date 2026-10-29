@@ -354,13 +354,20 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Button Grid.Column="0" Click="OnSelectVSCodeClick">
+                                    <Button Grid.Column="0"
+                                            Click="OnSelectVSCodeClick"
+                                            ToolTipService.ShowOnDisabled="True">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource EnvironmentButton}">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudioCode}">
                                                         <Setter Property="Background" Value="#163450" />
                                                         <Setter Property="BorderBrush" Value="#246694" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsVisualStudioCodeAvailable}" Value="False">
+                                                        <Setter Property="IsEnabled" Value="False" />
+                                                        <Setter Property="Opacity" Value="0.38" />
+                                                        <Setter Property="ToolTip" Value="VS Code already has a tab for this folder." />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -370,13 +377,20 @@
                                             <TextBlock Text="VS Code" />
                                         </StackPanel>
                                     </Button>
-                                    <Button Grid.Column="1" Click="OnSelectVisualStudioClick">
+                                    <Button Grid.Column="1"
+                                            Click="OnSelectVisualStudioClick"
+                                            ToolTipService.ShowOnDisabled="True">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource EnvironmentButton}">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
                                                         <Setter Property="Background" Value="#342350" />
                                                         <Setter Property="BorderBrush" Value="#6843A0" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsVisualStudioAvailable}" Value="False">
+                                                        <Setter Property="IsEnabled" Value="False" />
+                                                        <Setter Property="Opacity" Value="0.38" />
+                                                        <Setter Property="ToolTip" Value="Visual Studio already has a tab for this folder." />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -408,6 +422,21 @@
                                            FontSize="11"
                                            LineHeight="17"
                                            TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding SolutionDisplayName, StringFormat=Solution: {0}}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="10"
+                                           Margin="0,6,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                                 <Button Style="{StaticResource PrimaryButton}"
                                         Content="Open in CodeDock"
                                         HorizontalAlignment="Left"
@@ -423,6 +452,22 @@
                                         Margin="0,7,0,0"
                                         Command="{Binding DataContext.AssociateExistingIdeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding}" />
+                                <Button Content="Change solution"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,7,0,0"
+                                        Command="{Binding DataContext.ChangeVisualStudioSolutionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource GhostButton}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Border>

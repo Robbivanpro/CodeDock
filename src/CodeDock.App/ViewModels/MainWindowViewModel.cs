@@ -66,6 +66,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Projects.Add(new ProjectTabViewModel(project));
             }
 
+            RefreshEnvironmentAvailability();
+
             SelectedProject = Projects.FirstOrDefault(project => project.Id == _session.SelectedProjectId)
                 ?? Projects.FirstOrDefault();
             StatusMessage = Projects.Count == 0
@@ -114,8 +116,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var tab = new ProjectTabViewModel(result.Value);
             Projects.Add(tab);
+            RefreshEnvironmentAvailability();
             SelectedProject = tab;
-            StatusMessage = $"Added {tab.Name}.";
+            StatusMessage = $"Added {tab.Name} for {GetEnvironmentName(tab.PreferredEnvironment)}.";
         }
         catch (Exception exception)
         {
@@ -245,12 +248,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var result = await _registry.SetPreferredEnvironmentAsync(project.Id, project.PreferredEnvironment);
         if (result.IsSuccess)
         {
+            RefreshEnvironmentAvailability();
             StatusMessage = project.PreferredEnvironment == DevelopmentEnvironment.VisualStudio2022
                 ? $"{project.Name} will open with Visual Studio 2022."
                 : $"{project.Name} will open with VS Code.";
             return;
         }
 
+        project.PreferredEnvironment = model.PreferredEnvironment;
+        RefreshEnvironmentAvailability();
         _dialogService.ShowWarning(result.Error ?? "The preferred development environment could not be saved.");
     }
 
@@ -267,6 +273,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (model is null)
         {
             _dialogService.ShowWarning("The project no longer exists.");
+            return;
+        }
+
+        if (!await EnsureVisualStudioSolutionAsync(project, model, forceChoice: false))
+        {
             return;
         }
 
@@ -310,6 +321,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 else
                 {
+                    project.RefreshLaunchTarget();
                     _logger.LogInformation(
                         "Saved launch target {LaunchTargetPath} for workspace {WorkspaceId}",
                         result.LaunchTargetPath,
@@ -340,6 +352,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             project.IsIdeBusy = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task ChangeVisualStudioSolutionAsync(ProjectTabViewModel? project)
+    {
+        project ??= SelectedProject;
+        if (project is null
+            || project.PreferredEnvironment != DevelopmentEnvironment.VisualStudio2022
+            || project.IsIdeBusy)
+        {
+            return;
+        }
+
+        var model = _registry.Projects.FirstOrDefault(item => item.Id == project.Id);
+        if (model is null)
+        {
+            return;
+        }
+
+        project.WindowHandle = _ideWorkspaceService.GetAssociatedWindow(project.Id);
+        if (project.HasAssociatedWindow)
+        {
+            _dialogService.ShowWarning("Close the associated Visual Studio window before changing solution.");
+            return;
+        }
+
+        await EnsureVisualStudioSolutionAsync(project, model, forceChoice: true);
     }
 
     [RelayCommand]
@@ -439,10 +478,86 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         Projects.Remove(project);
+        RefreshEnvironmentAvailability();
         SelectedProject = Projects.Count == 0 ? null : Projects[Math.Min(index, Projects.Count - 1)];
         StatusMessage = $"Removed {project.Name} from CodeDock.";
         return true;
     }
+
+    private void RefreshEnvironmentAvailability()
+    {
+        foreach (var project in Projects)
+        {
+            project.IsVisualStudioCodeAvailable = project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode
+                || !Projects.Any(other => other.Id != project.Id
+                    && other.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode
+                    && string.Equals(other.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase));
+            project.IsVisualStudioAvailable = project.PreferredEnvironment == DevelopmentEnvironment.VisualStudio2022
+                || !Projects.Any(other => other.Id != project.Id
+                    && other.PreferredEnvironment == DevelopmentEnvironment.VisualStudio2022
+                    && string.Equals(other.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private static string GetEnvironmentName(DevelopmentEnvironment environment) =>
+        environment == DevelopmentEnvironment.VisualStudio2022 ? "Visual Studio 2022" : "VS Code";
+
+    private async Task<bool> EnsureVisualStudioSolutionAsync(
+        ProjectTabViewModel project,
+        ProjectWorkspace model,
+        bool forceChoice)
+    {
+        if (model.PreferredEnvironment != DevelopmentEnvironment.VisualStudio2022)
+        {
+            return true;
+        }
+
+        if (!forceChoice
+            && !string.IsNullOrWhiteSpace(model.WorkspaceFilePath)
+            && File.Exists(model.WorkspaceFilePath)
+            && IsVisualStudioSolution(model.WorkspaceFilePath))
+        {
+            return true;
+        }
+
+        var solutions = _ideWorkspaceService.GetVisualStudioSolutions(model);
+        if (solutions.Count == 0)
+        {
+            const string message = "No .sln or .slnx file was found near this workspace.";
+            StatusMessage = message;
+            _dialogService.ShowWarning(message);
+            return false;
+        }
+
+        var orderedSolutions = solutions
+            .OrderByDescending(path => string.Equals(path, model.WorkspaceFilePath, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var selectedSolution = orderedSolutions.Count == 1
+            ? orderedSolutions[0]
+            : _dialogService.ChooseVisualStudioSolution(model.FolderPath, orderedSolutions);
+        if (selectedSolution is null)
+        {
+            StatusMessage = "Visual Studio solution selection cancelled.";
+            return false;
+        }
+
+        model.WorkspaceFilePath = selectedSolution;
+        var saveResult = await _registry.UpdateProjectAsync(model);
+        if (!saveResult.IsSuccess)
+        {
+            _dialogService.ShowWarning(saveResult.Error ?? "The selected solution could not be saved.");
+            return false;
+        }
+
+        project.RefreshLaunchTarget();
+        StatusMessage = $"{Path.GetFileName(selectedSolution)} selected for {project.Name}.";
+        return true;
+    }
+
+    private static bool IsVisualStudioSolution(string path) =>
+        string.Equals(Path.GetExtension(path), ".sln", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Path.GetExtension(path), ".slnx", StringComparison.OrdinalIgnoreCase);
 
     private void SyncSession(ProjectTabViewModel project)
     {
