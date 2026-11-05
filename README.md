@@ -18,6 +18,17 @@ dotnet test CodeDock.slnx --no-build
 dotnet run --project src/CodeDock.App/CodeDock.App.csproj
 ```
 
+To create the Windows package without requiring .NET to be installed on the
+destination PC:
+
+```powershell
+dotnet publish src/CodeDock.App/CodeDock.App.csproj -c Release -o publish/win-x64-shared-browser-profile
+```
+
+The app project is configured as a self-contained `win-x64` application, so
+the published folder must be copied in full; `CodeDock.App.exe` is not a
+standalone file by itself.
+
 For the stable workspace-local build, double-click `Start-CodeDock.cmd`. To test Part 2 separately, double-click `Start-CodeDock-Part2.cmd`.
 
 Project and session data are saved under `%LocalAppData%\CodeDock`.

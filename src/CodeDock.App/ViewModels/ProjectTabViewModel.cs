@@ -13,6 +13,7 @@ public sealed partial class ProjectTabViewModel : ObservableObject
         _project = project;
         _name = project.Name;
         _preferredEnvironment = project.PreferredEnvironment;
+        _launchTargetUrl = project.WorkspaceFilePath ?? string.Empty;
     }
 
     public Guid Id => _project.Id;
@@ -21,13 +22,29 @@ public sealed partial class ProjectTabViewModel : ObservableObject
 
     public string? GitBranch => _project.GitBranch;
 
-    public bool IsFolderAvailable => Directory.Exists(_project.FolderPath);
+    public bool IsFolderAvailable => !IsCodeWorkspace || Directory.Exists(_project.FolderPath);
+
+    public bool IsCodeWorkspace => PreferredEnvironment.IsCodeEnvironment();
+
+    public bool IsAppOrBrowserWorkspace => !PreferredEnvironment.IsCodeEnvironment();
+
+    public bool IsBrowserWorkspace => PreferredEnvironment.IsBrowserEnvironment();
+
+    public string EnvironmentDisplayName => PreferredEnvironment.GetDisplayName();
 
     [ObservableProperty]
     private string _name;
 
     [ObservableProperty]
+    private string _launchTargetUrl;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SolutionDisplayName))]
+    [NotifyPropertyChangedFor(nameof(IsCodeWorkspace))]
+    [NotifyPropertyChangedFor(nameof(IsAppOrBrowserWorkspace))]
+    [NotifyPropertyChangedFor(nameof(IsBrowserWorkspace))]
+    [NotifyPropertyChangedFor(nameof(EnvironmentDisplayName))]
+    [NotifyPropertyChangedFor(nameof(IsFolderAvailable))]
     private DevelopmentEnvironment _preferredEnvironment;
 
     [ObservableProperty]
@@ -35,6 +52,9 @@ public sealed partial class ProjectTabViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isVisualStudioAvailable = true;
+
+    [ObservableProperty]
+    private bool _isAntigravityAvailable = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasAssociatedWindow))]
@@ -46,6 +66,11 @@ public sealed partial class ProjectTabViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isSelected;
+
+    [ObservableProperty]
+    private bool _hasUnreadNotification;
+
+    public string? LastKnownWindowTitle { get; set; }
 
     [ObservableProperty]
     private string _ideStatus = "Ready to launch";
@@ -73,7 +98,11 @@ public sealed partial class ProjectTabViewModel : ObservableObject
             ? "Choose on first open"
             : Path.GetFileName(_project.WorkspaceFilePath);
 
-    public void RefreshLaunchTarget() => OnPropertyChanged(nameof(SolutionDisplayName));
+    public void RefreshLaunchTarget()
+    {
+        LaunchTargetUrl = _project.WorkspaceFilePath ?? string.Empty;
+        OnPropertyChanged(nameof(SolutionDisplayName));
+    }
 
     public void RestoreName() => Name = _project.Name;
 

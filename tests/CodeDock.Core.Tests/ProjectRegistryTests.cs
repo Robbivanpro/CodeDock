@@ -31,14 +31,20 @@ public sealed class ProjectRegistryTests
 
         var first = await sut.AddProjectAsync("C:\\Repos\\Backend");
         var second = await sut.AddProjectAsync("c:\\repos\\BACKEND");
-        var duplicate = await sut.AddProjectAsync("C:\\REPOS\\backend");
+        var third = await sut.AddProjectAsync("C:\\REPOS\\backend");
+        var duplicate = await sut.AddProjectAsync("C:\\Repos\\Backend");
 
         Assert.True(first.IsSuccess);
         Assert.True(second.IsSuccess);
+        Assert.True(third.IsSuccess);
         Assert.False(duplicate.IsSuccess);
-        Assert.Equal(2, sut.Projects.Count);
+        Assert.Equal(3, sut.Projects.Count);
         Assert.Equal(
-            [DevelopmentEnvironment.VisualStudioCode, DevelopmentEnvironment.VisualStudio2022],
+            [
+                DevelopmentEnvironment.VisualStudioCode,
+                DevelopmentEnvironment.VisualStudio2022,
+                DevelopmentEnvironment.Antigravity
+            ],
             sut.Projects.Select(project => project.PreferredEnvironment));
     }
 
@@ -135,6 +141,29 @@ public sealed class ProjectRegistryTests
 
         Assert.True(result.IsSuccess);
         Assert.Null(project.WorkspaceFilePath);
+    }
+
+    [Fact]
+    public async Task AddAppWorkspaceAsync_AllowsMultipleBrowserInstancesWithSharedBrowserProfile()
+    {
+        var sut = new ProjectRegistry(new MemoryProjectStore(), new AcceptingPathValidator());
+
+        var firstEdge = await sut.AddAppWorkspaceAsync(DevelopmentEnvironment.MicrosoftEdge);
+        var secondEdge = await sut.AddAppWorkspaceAsync(DevelopmentEnvironment.MicrosoftEdge);
+        var customChrome = await sut.AddAppWorkspaceAsync(
+            DevelopmentEnvironment.GoogleChrome,
+            "Chrome - WhatsApp",
+            "https://web.whatsapp.com");
+
+        Assert.True(firstEdge.IsSuccess);
+        Assert.True(secondEdge.IsSuccess);
+        Assert.True(customChrome.IsSuccess);
+        Assert.Equal("Microsoft Edge", firstEdge.Value!.Name);
+        Assert.Equal("Microsoft Edge 2", secondEdge.Value!.Name);
+        Assert.Equal(firstEdge.Value.FolderPath, secondEdge.Value.FolderPath);
+        Assert.NotEqual(firstEdge.Value.FolderPath, customChrome.Value!.FolderPath);
+        Assert.Equal("Chrome - WhatsApp", customChrome.Value!.Name);
+        Assert.Equal("https://web.whatsapp.com", customChrome.Value.WorkspaceFilePath);
     }
 
     private static ProjectWorkspace Project(string name, string path, int order) => new()

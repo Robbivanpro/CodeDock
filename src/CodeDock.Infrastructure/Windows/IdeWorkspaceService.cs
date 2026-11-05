@@ -82,6 +82,20 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
                 }
 
                 var before = _windowService.EnumerateIdeWindows(environment);
+                if (environment.IsSingleInstanceApp())
+                {
+                    var existingUnclaimed = before.Where(candidate => !_windowOwners.ContainsKey(candidate.Handle)).ToList();
+                    if (existingUnclaimed is [var existingWindow] && TryClaim(session, existingWindow, out _))
+                    {
+                        _windowService.TryActivate(existingWindow.Handle);
+                        return new IdeOperationResult(
+                            IdeOperationStatus.Associated,
+                            $"Associated existing {environment.GetDisplayName()} window.",
+                            existingWindow.Handle,
+                            [existingWindow]);
+                    }
+                }
+
                 var launchResult = await _launcher.LaunchAsync(launchProject, installation, cancellationToken).ConfigureAwait(false);
                 if (!launchResult.IsSuccess)
                 {
@@ -91,7 +105,8 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
                 var after = await WaitForWindowChangeAsync(environment, before, cancellationToken).ConfigureAwait(false);
                 var association = _associationResolver.Resolve(before, after);
                 string? claimError = null;
-                if (association.Status == IdeOperationStatus.LaunchedAndAssociated
+                if (environment.IsCodeEnvironment()
+                    && association.Status == IdeOperationStatus.LaunchedAndAssociated
                     && association.Candidates is [var detected]
                     && (launchResult.Value is null || !launchResult.Value.Matches(detected)))
                 {
@@ -417,9 +432,9 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
             var newWindows = current.Where(window => !existingHandles.Contains(window.Handle)).ToList();
             if (newWindows.Count > 0)
             {
-                if (environment == DevelopmentEnvironment.VisualStudioCode)
+                if (environment != DevelopmentEnvironment.VisualStudio2022)
                 {
-                    // Chromium can continue initializing after its top-level
+                    // Chromium and desktop apps can continue initializing after their top-level
                     // HWND has already been moved into the CodeDock host.
                     return current;
                 }
@@ -446,7 +461,7 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
             }
 
             await Task.Delay(
-                environment == DevelopmentEnvironment.VisualStudioCode ? 75 : 150,
+                environment != DevelopmentEnvironment.VisualStudio2022 ? 75 : 150,
                 cancellationToken).ConfigureAwait(false);
         }
 

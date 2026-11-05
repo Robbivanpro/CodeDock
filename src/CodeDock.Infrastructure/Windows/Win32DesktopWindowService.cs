@@ -25,7 +25,6 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
     public IReadOnlyList<IdeWindowCandidate> EnumerateIdeWindows(DevelopmentEnvironment environment)
     {
         var candidates = new List<IdeWindowCandidate>();
-        var expectedProcessName = GetExpectedProcessName(environment);
 
         NativeMethods.EnumWindows((handle, _) =>
         {
@@ -44,7 +43,7 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
             try
             {
                 using var process = Process.GetProcessById(unchecked((int)processId));
-                if (!string.Equals(process.ProcessName, expectedProcessName, StringComparison.OrdinalIgnoreCase))
+                if (!MatchesExpectedProcessName(environment, process.ProcessName))
                 {
                     return true;
                 }
@@ -56,7 +55,7 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
                     unchecked((int)processId),
                     title.ToString(),
                     environment,
-                    process.StartTime.ToUniversalTime().Ticks));
+                    TryGetStartTimeTicks(process)));
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
             {
@@ -88,9 +87,9 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
         try
         {
             using var process = Process.GetProcessById(identity.ProcessId);
-            return string.Equals(process.ProcessName, GetExpectedProcessName(identity.Environment), StringComparison.OrdinalIgnoreCase)
+            return MatchesExpectedProcessName(identity.Environment, process.ProcessName)
                 && (identity.ProcessStartTimeUtcTicks == 0
-                    || process.StartTime.ToUniversalTime().Ticks == identity.ProcessStartTimeUtcTicks);
+                    || TryGetStartTimeTicks(process) == identity.ProcessStartTimeUtcTicks);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
         {
@@ -163,7 +162,8 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
         while (DateTimeOffset.UtcNow < deadline)
         {
             await Task.Delay(200, cancellationToken).ConfigureAwait(false);
-            if (!IsWindow(identity.Handle))
+            if (!IsWindow(identity.Handle)
+                || (identity.Environment.IsSingleInstanceApp() && !NativeMethods.IsWindowVisible(new IntPtr(identity.Handle))))
             {
                 return new WindowCloseResult(WindowCloseStatus.Closed, "The IDE window closed successfully.");
             }
@@ -179,8 +179,34 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
             "The IDE is still open. A save dialog may be active or the close request may have been cancelled.");
     }
 
-    private static string GetExpectedProcessName(DevelopmentEnvironment environment) =>
-        environment == DevelopmentEnvironment.VisualStudioCode ? "Code" : "devenv";
+    private static bool MatchesExpectedProcessName(DevelopmentEnvironment environment, string processName) => environment switch
+    {
+        DevelopmentEnvironment.VisualStudioCode => string.Equals(processName, "Code", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.VisualStudio2022 => string.Equals(processName, "devenv", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.Antigravity => string.Equals(processName, "Antigravity", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.MicrosoftTeams => string.Equals(processName, "ms-teams", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processName, "Teams", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.MicrosoftOutlook => string.Equals(processName, "olk", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processName, "OUTLOOK", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.WhatsApp => string.Equals(processName, "WhatsApp", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processName, "WhatsApp.Root", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.Spotify => string.Equals(processName, "Spotify", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.MicrosoftEdge => string.Equals(processName, "msedge", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.GoogleChrome => string.Equals(processName, "chrome", StringComparison.OrdinalIgnoreCase),
+        _ => false
+    };
+
+    private static long TryGetStartTimeTicks(Process process)
+    {
+        try
+        {
+            return process.StartTime.ToUniversalTime().Ticks;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            return 0;
+        }
+    }
 
     private static class NativeMethods
     {

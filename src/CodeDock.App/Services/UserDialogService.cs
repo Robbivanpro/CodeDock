@@ -18,6 +18,16 @@ public sealed class UserDialogService : IUserDialogService
         MessageBoxButton.YesNo,
         MessageBoxImage.Question) == MessageBoxResult.Yes;
 
+    public ApplicationCloseChoice ChooseApplicationCloseBehavior(int openIdeCount)
+    {
+        var dialog = new CloseApplicationDialog(openIdeCount)
+        {
+            Owner = Application.Current.MainWindow
+        };
+        dialog.ShowDialog();
+        return dialog.Choice;
+    }
+
     public void ShowWarning(string message) => MessageBox.Show(
         message,
         "CodeDock",

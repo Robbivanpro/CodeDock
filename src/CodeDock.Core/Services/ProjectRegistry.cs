@@ -25,6 +25,11 @@ public sealed class ProjectRegistry : IProjectRegistry
         var result = await _store.LoadAsync(cancellationToken).ConfigureAwait(false);
         _projects.Clear();
         _projects.AddRange(result.Value.OrderBy(project => project.SortOrder));
+        foreach (var project in _projects.Where(project => project.PreferredEnvironment.IsBrowserEnvironment()))
+        {
+            project.FolderPath = GetAppWorkspaceFolder(project.Id, project.PreferredEnvironment);
+        }
+
         NormalizeSortOrder();
         LastLoadWarning = result.Warning;
     }
@@ -40,15 +45,16 @@ public sealed class ProjectRegistry : IProjectRegistry
         }
 
         var matchingProjects = _projects
-            .Where(project => string.Equals(project.FolderPath, validation.Value, StringComparison.OrdinalIgnoreCase))
+            .Where(project => project.PreferredEnvironment.IsCodeEnvironment()
+                && string.Equals(project.FolderPath, validation.Value, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        var availableEnvironment = Enum.GetValues<DevelopmentEnvironment>()
+        var availableEnvironment = DevelopmentEnvironmentExtensions.CodeEnvironments
             .FirstOrDefault(environment => matchingProjects.All(project => project.PreferredEnvironment != environment));
-        if (matchingProjects.Count >= Enum.GetValues<DevelopmentEnvironment>().Length
+        if (matchingProjects.Count >= DevelopmentEnvironmentExtensions.CodeEnvironments.Count
             || matchingProjects.Any(project => project.PreferredEnvironment == availableEnvironment))
         {
             return OperationResult<ProjectWorkspace>.Failure(
-                "This folder already has tabs for both VS Code and Visual Studio 2022.");
+                "This folder already has a tab for every supported development environment.");
         }
 
         var project = new ProjectWorkspace
@@ -58,6 +64,42 @@ public sealed class ProjectRegistry : IProjectRegistry
             FolderPath = validation.Value,
             SortOrder = _projects.Count,
             PreferredEnvironment = availableEnvironment
+        };
+
+        _projects.Add(project);
+        await SaveProjectsAsync(cancellationToken).ConfigureAwait(false);
+        return OperationResult<ProjectWorkspace>.Success(project);
+    }
+
+    public async Task<OperationResult<ProjectWorkspace>> AddAppWorkspaceAsync(
+        DevelopmentEnvironment environment,
+        string? customName = null,
+        string? launchTarget = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(environment) || environment.IsCodeEnvironment())
+        {
+            return OperationResult<ProjectWorkspace>.Failure("Select a valid application or browser environment.");
+        }
+
+        var id = Guid.NewGuid();
+        var baseName = string.IsNullOrWhiteSpace(customName)
+            ? environment.GetDisplayName()
+            : customName.Trim();
+        var existingCount = _projects.Count(project => project.PreferredEnvironment == environment);
+        var resolvedName = string.IsNullOrWhiteSpace(customName) && existingCount > 0
+            ? $"{baseName} {existingCount + 1}"
+            : baseName;
+
+        var appFolder = GetAppWorkspaceFolder(id, environment);
+        var project = new ProjectWorkspace
+        {
+            Id = id,
+            Name = resolvedName,
+            FolderPath = appFolder,
+            WorkspaceFilePath = string.IsNullOrWhiteSpace(launchTarget) ? null : launchTarget.Trim(),
+            SortOrder = _projects.Count,
+            PreferredEnvironment = environment
         };
 
         _projects.Add(project);
@@ -112,10 +154,28 @@ public sealed class ProjectRegistry : IProjectRegistry
             return OperationResult.Failure("The project no longer exists.");
         }
 
-        var pathValidation = _pathValidator.ValidateFolder(project.FolderPath);
-        if (!pathValidation.IsSuccess || pathValidation.Value is null)
+        string normalizedFolderPath;
+        if (project.PreferredEnvironment.IsCodeEnvironment())
         {
-            return OperationResult.Failure(pathValidation.Error ?? "The project path is invalid.");
+            var pathValidation = _pathValidator.ValidateFolder(project.FolderPath);
+            if (!pathValidation.IsSuccess || pathValidation.Value is null)
+            {
+                return OperationResult.Failure(pathValidation.Error ?? "The project path is invalid.");
+            }
+
+            normalizedFolderPath = pathValidation.Value;
+            if (_projects.Any(item => item.Id != project.Id
+                && item.PreferredEnvironment == project.PreferredEnvironment
+                && string.Equals(item.FolderPath, normalizedFolderPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                return OperationResult.Failure("This folder already has a tab for the selected development environment.");
+            }
+        }
+        else
+        {
+            normalizedFolderPath = string.IsNullOrWhiteSpace(project.FolderPath)
+                ? GetAppWorkspaceFolder(project.Id, project.PreferredEnvironment)
+                : project.FolderPath;
         }
 
         if (string.IsNullOrWhiteSpace(project.Name))
@@ -123,15 +183,8 @@ public sealed class ProjectRegistry : IProjectRegistry
             return OperationResult.Failure("Project name cannot be empty.");
         }
 
-        if (_projects.Any(item => item.Id != project.Id
-            && item.PreferredEnvironment == project.PreferredEnvironment
-            && string.Equals(item.FolderPath, pathValidation.Value, StringComparison.OrdinalIgnoreCase)))
-        {
-            return OperationResult.Failure("This folder already has a tab for the selected development environment.");
-        }
-
         existing.Name = project.Name.Trim();
-        existing.FolderPath = pathValidation.Value;
+        existing.FolderPath = normalizedFolderPath;
         existing.WorkspaceFilePath = project.WorkspaceFilePath;
         existing.GitBranch = project.GitBranch;
         existing.IsPinned = project.IsPinned;
@@ -156,9 +209,10 @@ public sealed class ProjectRegistry : IProjectRegistry
             return OperationResult.Failure("The selected development environment is not supported.");
         }
 
-        if (_projects.Any(item => item.Id != projectId
-            && item.PreferredEnvironment == environment
-            && string.Equals(item.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase)))
+        if (environment.IsCodeEnvironment()
+            && _projects.Any(item => item.Id != projectId
+                && item.PreferredEnvironment == environment
+                && string.Equals(item.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase)))
         {
             return OperationResult.Failure("This folder already has a tab for the selected development environment.");
         }
@@ -167,6 +221,11 @@ public sealed class ProjectRegistry : IProjectRegistry
         {
             project.PreferredEnvironment = environment;
             project.WorkspaceFilePath = null;
+            if (!environment.IsCodeEnvironment())
+            {
+                project.FolderPath = GetAppWorkspaceFolder(project.Id, environment);
+            }
+
             await SaveProjectsAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -215,6 +274,19 @@ public sealed class ProjectRegistry : IProjectRegistry
     }
 
     private ProjectWorkspace? Find(Guid projectId) => _projects.FirstOrDefault(project => project.Id == projectId);
+
+    private static string GetAppWorkspaceFolder(Guid id, DevelopmentEnvironment environment)
+    {
+        var codeDockData = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CodeDock");
+        if (environment.IsBrowserEnvironment())
+        {
+            return Path.Combine(codeDockData, "BrowserProfiles", environment.ToString());
+        }
+
+        return Path.Combine(codeDockData, "AppWorkspaces", id.ToString("N"));
+    }
 
     private void NormalizeSortOrder()
     {

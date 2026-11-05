@@ -293,6 +293,47 @@ public sealed class IdeWorkspaceServiceTests
         Assert.True(windows.ResponsivenessChecks >= 30);
     }
 
+    [Fact]
+    public async Task OpenOrActivateAsync_AssociatesExistingSingleInstanceAppWithoutRelaunching()
+    {
+        var windows = new FakeDesktopWindowService();
+        var existingSpotify = windows.AddWindow(1101, 2101, DevelopmentEnvironment.Spotify);
+        var launchCalled = false;
+        var launcher = new FakeIdeLauncher(_ =>
+        {
+            launchCalled = true;
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(new IdeLaunchReceipt(0, 0)));
+        });
+        var service = CreateService(windows, launcher);
+        var project = CreateProject();
+        project.PreferredEnvironment = DevelopmentEnvironment.Spotify;
+
+        var result = await service.OpenOrActivateAsync(project);
+
+        Assert.Equal(IdeOperationStatus.Associated, result.Status);
+        Assert.False(launchCalled);
+        Assert.Equal(existingSpotify.Handle, service.GetAssociatedWindow(project.Id));
+    }
+
+    [Fact]
+    public async Task OpenOrActivateAsync_AssociatesNewBrowserWindowEvenWhenBrokerProcessDiffers()
+    {
+        var windows = new FakeDesktopWindowService();
+        var launcher = new FakeIdeLauncher(_ =>
+        {
+            windows.AddWindow(1201, 4444, DevelopmentEnvironment.MicrosoftEdge);
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(new IdeLaunchReceipt(9999, 99990)));
+        });
+        var service = CreateService(windows, launcher);
+        var project = CreateProject();
+        project.PreferredEnvironment = DevelopmentEnvironment.MicrosoftEdge;
+
+        var result = await service.OpenOrActivateAsync(project);
+
+        Assert.Equal(IdeOperationStatus.LaunchedAndAssociated, result.Status);
+        Assert.Equal(1201, service.GetAssociatedWindow(project.Id));
+    }
+
     private static IdeWorkspaceService CreateService(FakeDesktopWindowService windows, FakeIdeLauncher launcher) =>
         new(
             new FakeIdeLocator(),

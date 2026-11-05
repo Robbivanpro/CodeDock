@@ -1,8 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace CodeDock.App.Controls;
 
@@ -10,12 +11,22 @@ public sealed class ExternalWindowHost : HwndHost
 {
     private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
+    private const int SwRestore = 9;
     private const long WsChild = 0x40000000L;
     private const long WsVisible = 0x10000000L;
+    private const long WsMinimize = 0x20000000L;
+    private const long WsMaximize = 0x01000000L;
     private const long WsPopup = 0x80000000L;
     private const long WsCaption = 0x00C00000L;
     private const long WsThickFrame = 0x00040000L;
+    private const long WsSystemMenu = 0x00080000L;
+    private const long WsMinimizeBox = 0x00020000L;
+    private const long WsMaximizeBox = 0x00010000L;
     private const long WsTabStop = 0x00010000L;
+    private const long WsExDialogModalFrame = 0x00000001L;
+    private const long WsExWindowEdge = 0x00000100L;
+    private const long WsExClientEdge = 0x00000200L;
+    private const long WsExAppWindow = 0x00040000L;
     private const int WmParentNotify = 0x0210;
     private const int WmLButtonDown = 0x0201;
     private const int WmRButtonDown = 0x0204;
@@ -24,6 +35,7 @@ public sealed class ExternalWindowHost : HwndHost
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
     private const uint SwpShowWindow = 0x0040;
     private const uint WsClipChildren = 0x02000000;
@@ -31,6 +43,7 @@ public sealed class ExternalWindowHost : HwndHost
 
     private IntPtr _hostHandle;
     private IntPtr _externalHandle;
+    private IntPtr _pendingExternalHandle;
     private IntPtr _originalParent;
     private IntPtr _originalStyle;
     private IntPtr _originalExtendedStyle;
@@ -59,8 +72,19 @@ public sealed class ExternalWindowHost : HwndHost
 
     public string? LastError { get; private set; }
 
+    public bool TryAttach(long windowHandle)
+    {
+        if (windowHandle == 0 || _hostHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return AttachExternalWindow(new IntPtr(windowHandle));
+    }
+
     public bool TryDetach(out string? error)
     {
+        _pendingExternalHandle = IntPtr.Zero;
         var success = DetachExternalWindow();
         error = LastError;
         return success;
@@ -68,6 +92,7 @@ public sealed class ExternalWindowHost : HwndHost
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
+        var (initialWidth, initialHeight) = GetDpiScaledSize();
         _hostHandle = NativeMethods.CreateWindowEx(
             0,
             "STATIC",
@@ -75,8 +100,8 @@ public sealed class ExternalWindowHost : HwndHost
             unchecked((uint)(WsChild | WsVisible)) | WsClipChildren | WsClipSiblings,
             0,
             0,
-            Math.Max(1, (int)ActualWidth),
-            Math.Max(1, (int)ActualHeight),
+            initialWidth,
+            initialHeight,
             hwndParent.Handle,
             IntPtr.Zero,
             IntPtr.Zero,
@@ -87,12 +112,21 @@ public sealed class ExternalWindowHost : HwndHost
             throw new InvalidOperationException($"The native embedded-window host could not be created. Error {Marshal.GetLastWin32Error()}.");
         }
 
-        AttachExternalWindow(new IntPtr(WindowHandle));
+        if (WindowHandle != 0)
+        {
+            _pendingExternalHandle = new IntPtr(WindowHandle);
+            if (IsHostLayoutReady())
+            {
+                AttachExternalWindow(_pendingExternalHandle);
+            }
+        }
+
         return new HandleRef(this, _hostHandle);
     }
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
+        _pendingExternalHandle = IntPtr.Zero;
         if (!DetachExternalWindow())
         {
             return;
@@ -106,6 +140,18 @@ public sealed class ExternalWindowHost : HwndHost
     }
 
     protected override bool TabIntoCore(TraversalRequest request) => FocusExternalWindow();
+
+    protected override void OnWindowPositionChanged(Rect rcBoundingBox)
+    {
+        base.OnWindowPositionChanged(rcBoundingBox);
+        if (_pendingExternalHandle != IntPtr.Zero && _externalHandle == IntPtr.Zero && IsHostLayoutReady())
+        {
+            AttachExternalWindow(_pendingExternalHandle);
+            return;
+        }
+
+        ResizeExternalWindow();
+    }
 
     protected override IntPtr WndProc(
         IntPtr hwnd,
@@ -128,17 +174,43 @@ public sealed class ExternalWindowHost : HwndHost
     private static void OnWindowHandleChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args)
     {
         var host = (ExternalWindowHost)dependencyObject;
-        if (host._hostHandle != IntPtr.Zero)
+        var nextHandle = new IntPtr((long)args.NewValue);
+        if (nextHandle == IntPtr.Zero)
         {
-            host.AttachExternalWindow(new IntPtr((long)args.NewValue));
+            host._pendingExternalHandle = IntPtr.Zero;
+            if (host._hostHandle != IntPtr.Zero && host._externalHandle != IntPtr.Zero)
+            {
+                host.DetachExternalWindow();
+            }
+
+            return;
+        }
+
+        host.LastError = null;
+        host._pendingExternalHandle = nextHandle;
+        if (host._hostHandle != IntPtr.Zero && host.IsHostLayoutReady())
+        {
+            host.AttachExternalWindow(nextHandle);
         }
     }
 
+    private bool IsHostLayoutReady() =>
+        _hostHandle != IntPtr.Zero
+        && ActualWidth >= 10
+        && ActualHeight >= 10;
+
     private bool AttachExternalWindow(IntPtr externalHandle)
     {
+        if (externalHandle == IntPtr.Zero)
+        {
+            _pendingExternalHandle = IntPtr.Zero;
+            return DetachExternalWindow();
+        }
+
         LastError = null;
         if (_externalHandle == externalHandle)
         {
+            _pendingExternalHandle = IntPtr.Zero;
             ResizeExternalWindow();
             return true;
         }
@@ -148,17 +220,20 @@ public sealed class ExternalWindowHost : HwndHost
             return false;
         }
 
-        if (externalHandle == IntPtr.Zero)
-        {
-            return true;
-        }
-
         if (_hostHandle == IntPtr.Zero || !NativeMethods.IsWindow(externalHandle))
         {
+            _pendingExternalHandle = IntPtr.Zero;
             LastError = "The selected IDE window is no longer valid.";
             return false;
         }
 
+        if (!IsHostLayoutReady())
+        {
+            _pendingExternalHandle = externalHandle;
+            return true;
+        }
+
+        _pendingExternalHandle = IntPtr.Zero;
         _originalParent = NativeMethods.GetParent(externalHandle);
         _originalStyle = NativeMethods.GetWindowLongPtr(externalHandle, GwlStyle);
         _originalExtendedStyle = NativeMethods.GetWindowLongPtr(externalHandle, GwlExStyle);
@@ -170,11 +245,63 @@ public sealed class ExternalWindowHost : HwndHost
             return false;
         }
 
+        // Restore maximized or minimized top-level windows and move/resize them onto
+        // the host's screen bounds BEFORE converting to WS_CHILD. Moving the top-level
+        // window onto CodeDock's monitor triggers WM_DPICHANGED when the app came from
+        // another monitor with different DPI scaling, and resizing while top-level lets
+        // WebView2 (Teams, Outlook) and WinUI 3 (WhatsApp) update their internal bounds.
+        if (NativeMethods.IsIconic(externalHandle) || NativeMethods.IsZoomed(externalHandle))
+        {
+            NativeMethods.ShowWindow(externalHandle, SwRestore);
+        }
+
+        var (initialWidth, initialHeight) = GetTargetPhysicalSize();
+        var targetX = 0;
+        var targetY = 0;
+        if (NativeMethods.GetWindowRect(_hostHandle, out var hostScreenRect))
+        {
+            targetX = hostScreenRect.Left;
+            targetY = hostScreenRect.Top;
+        }
+
+        NativeMethods.SetWindowPos(
+            externalHandle,
+            IntPtr.Zero,
+            targetX,
+            targetY,
+            initialWidth,
+            initialHeight,
+            SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+
+        var currentStyle = NativeMethods.GetWindowLongPtr(externalHandle, GwlStyle).ToInt64();
+        const long topLevelStyleMask = WsPopup
+            | WsCaption
+            | WsThickFrame
+            | WsSystemMenu
+            | WsMinimizeBox
+            | WsMaximizeBox
+            | WsMaximize
+            | WsMinimize;
         var hostedStyle = new IntPtr(
-            (_originalStyle.ToInt64() & ~WsPopup & ~WsCaption & ~WsThickFrame) | WsChild | WsVisible | WsTabStop);
+            (currentStyle & ~topLevelStyleMask)
+            | WsChild | WsVisible | WsTabStop);
         if (!TrySetWindowLong(externalHandle, GwlStyle, hostedStyle, out var styleError))
         {
             LastError = styleError;
+            ResetOriginalState();
+            return false;
+        }
+
+        var currentExtendedStyle = NativeMethods.GetWindowLongPtr(externalHandle, GwlExStyle).ToInt64();
+        const long topLevelExtendedStyleMask = WsExDialogModalFrame
+            | WsExWindowEdge
+            | WsExClientEdge
+            | WsExAppWindow;
+        var hostedExtendedStyle = new IntPtr(currentExtendedStyle & ~topLevelExtendedStyleMask);
+        if (!TrySetWindowLong(externalHandle, GwlExStyle, hostedExtendedStyle, out var extendedStyleError))
+        {
+            TrySetWindowLong(externalHandle, GwlStyle, _originalStyle, out _);
+            LastError = extendedStyleError;
             ResetOriginalState();
             return false;
         }
@@ -183,24 +310,25 @@ public sealed class ExternalWindowHost : HwndHost
         if (NativeMethods.GetParent(externalHandle) != _hostHandle)
         {
             TrySetWindowLong(externalHandle, GwlStyle, _originalStyle, out _);
+            TrySetWindowLong(externalHandle, GwlExStyle, _originalExtendedStyle, out _);
             LastError = $"The IDE window could not be attached to CodeDock. Error {Marshal.GetLastWin32Error()}.";
             ResetOriginalState();
             return false;
         }
 
         _externalHandle = externalHandle;
-        if (!ResizeExternalWindow())
+        if (!ResizeExternalWindow(forceFrameChange: true))
         {
             DetachExternalWindow();
             return false;
         }
 
+        ScheduleDeferredResizes();
         return true;
     }
 
     private bool DetachExternalWindow()
     {
-        LastError = null;
         if (_externalHandle == IntPtr.Zero)
         {
             return true;
@@ -212,9 +340,9 @@ public sealed class ExternalWindowHost : HwndHost
             return true;
         }
 
-        // SetParent does not change WS_CHILD/WS_POPUP.  In particular, when a
+        // SetParent does not change WS_CHILD/WS_POPUP. In particular, when a
         // top-level window is restored to the desktop, GetParent can still
-        // report the desktop HWND while WS_CHILD is present.  Restore the
+        // report the desktop HWND while WS_CHILD is present. Restore the
         // styles before validating the parent or every normal top-level IDE
         // window can be reported as a failed detach with Win32 error 0.
         Marshal.SetLastPInvokeError(0);
@@ -259,34 +387,133 @@ public sealed class ExternalWindowHost : HwndHost
             return false;
         }
 
+        LastError = null;
         ResetAttachmentState();
         return true;
     }
 
-    private bool ResizeExternalWindow()
+    private bool ResizeExternalWindow(bool forceFrameChange = false)
     {
         if (_externalHandle == IntPtr.Zero || !NativeMethods.IsWindow(_externalHandle))
         {
             return true;
         }
 
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var width = Math.Max(1, (int)Math.Round(ActualWidth * dpi.DpiScaleX));
-        var height = Math.Max(1, (int)Math.Round(ActualHeight * dpi.DpiScaleY));
-        if (NativeMethods.SetWindowPos(
-                _externalHandle,
-                IntPtr.Zero,
-                0,
-                0,
-                width,
-                height,
-                SwpNoZOrder | SwpFrameChanged | SwpShowWindow))
+        var (width, height) = GetTargetPhysicalSize();
+        var targetX = 0;
+        var targetY = 0;
+        var targetWidth = width;
+        var targetHeight = height;
+
+        // Account for a retained non-client frame in the single resize operation.
+        // Moving first to the unadjusted bounds and correcting it immediately after
+        // makes Chromium/WebView2 windows visibly oscillate during WPF layout passes.
+        if (NativeMethods.GetWindowRect(_externalHandle, out var extWinRect)
+            && NativeMethods.GetClientRect(_externalHandle, out var extClientRect))
+        {
+            var clientOrigin = new NativeMethods.Point { X = 0, Y = 0 };
+            if (NativeMethods.ClientToScreen(_externalHandle, ref clientOrigin))
+            {
+                var leftBorder = Math.Max(0, clientOrigin.X - extWinRect.Left);
+                var topBorder = Math.Max(0, clientOrigin.Y - extWinRect.Top);
+                var totalWidthBorder = Math.Max(0, (extWinRect.Right - extWinRect.Left) - (extClientRect.Right - extClientRect.Left));
+                var totalHeightBorder = Math.Max(0, (extWinRect.Bottom - extWinRect.Top) - (extClientRect.Bottom - extClientRect.Top));
+
+                if ((totalWidthBorder > 0 || totalHeightBorder > 0)
+                    && totalWidthBorder < 64
+                    && totalHeightBorder < 64)
+                {
+                    targetX = -leftBorder;
+                    targetY = -topBorder;
+                    targetWidth += totalWidthBorder;
+                    targetHeight += totalHeightBorder;
+                }
+            }
+        }
+
+        if (!forceFrameChange && IsExternalWindowAtBounds(targetX, targetY, targetWidth, targetHeight))
         {
             return true;
         }
 
-        LastError = $"The embedded IDE window could not be resized. Error {Marshal.GetLastWin32Error()}.";
-        return false;
+        var flags = SwpNoZOrder | SwpShowWindow | SwpNoActivate;
+        if (forceFrameChange)
+        {
+            flags |= SwpFrameChanged;
+        }
+
+        if (!NativeMethods.SetWindowPos(
+                _externalHandle,
+                IntPtr.Zero,
+                targetX,
+                targetY,
+                targetWidth,
+                targetHeight,
+                flags))
+        {
+            LastError = $"The embedded IDE window could not be resized. Error {Marshal.GetLastWin32Error()}.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool IsExternalWindowAtBounds(int x, int y, int width, int height)
+    {
+        if (!NativeMethods.GetWindowRect(_externalHandle, out var windowRect))
+        {
+            return false;
+        }
+
+        var hostOrigin = new NativeMethods.Point { X = 0, Y = 0 };
+        if (!NativeMethods.ClientToScreen(_hostHandle, ref hostOrigin))
+        {
+            return false;
+        }
+
+        return windowRect.Left - hostOrigin.X == x
+            && windowRect.Top - hostOrigin.Y == y
+            && windowRect.Right - windowRect.Left == width
+            && windowRect.Bottom - windowRect.Top == height;
+    }
+
+    private void ScheduleDeferredResizes()
+    {
+        _ = Dispatcher.BeginInvoke(() => ResizeExternalWindow(), DispatcherPriority.Loaded);
+        foreach (var delayMs in new[] { 100, 300, 650 })
+        {
+            var timer = new DispatcherTimer(DispatcherPriority.Render)
+            {
+                Interval = TimeSpan.FromMilliseconds(delayMs)
+            };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                ResizeExternalWindow();
+            };
+            timer.Start();
+        }
+    }
+
+    private (int Width, int Height) GetTargetPhysicalSize()
+    {
+        if (_hostHandle != IntPtr.Zero
+            && NativeMethods.GetClientRect(_hostHandle, out var hostRect)
+            && hostRect.Right - hostRect.Left > 10
+            && hostRect.Bottom - hostRect.Top > 10)
+        {
+            return (hostRect.Right - hostRect.Left, hostRect.Bottom - hostRect.Top);
+        }
+
+        return GetDpiScaledSize();
+    }
+
+    private (int Width, int Height) GetDpiScaledSize()
+    {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var width = Math.Max(1, (int)Math.Round(ActualWidth * dpi.DpiScaleX));
+        var height = Math.Max(1, (int)Math.Round(ActualHeight * dpi.DpiScaleY));
+        return (width, height);
     }
 
     private bool FocusExternalWindow()
@@ -355,7 +582,16 @@ public sealed class ExternalWindowHost : HwndHost
         _originalPlacement = default;
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e) => ResizeExternalWindow();
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_pendingExternalHandle != IntPtr.Zero && _externalHandle == IntPtr.Zero && IsHostLayoutReady())
+        {
+            AttachExternalWindow(_pendingExternalHandle);
+            return;
+        }
+
+        ResizeExternalWindow();
+    }
 
     private void OnGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => FocusExternalWindow();
 
@@ -412,6 +648,30 @@ public sealed class ExternalWindowHost : HwndHost
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool IsWindow(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsIconic(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsZoomed(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool ShowWindow(IntPtr windowHandle, int command);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetClientRect(IntPtr windowHandle, out Rect rect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetWindowRect(IntPtr windowHandle, out Rect rect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool ClientToScreen(IntPtr windowHandle, ref Point point);
 
         [DllImport("user32.dll")]
         internal static extern IntPtr GetParent(IntPtr windowHandle);

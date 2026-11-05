@@ -8,6 +8,8 @@ public interface IUserDialogService
 
     bool ConfirmCloseIdeAndTab(string projectName);
 
+    ApplicationCloseChoice ChooseApplicationCloseBehavior(int openIdeCount);
+
     void ShowWarning(string message);
 
     IdeWindowCandidate? ChooseIdeWindow(IReadOnlyList<IdeWindowCandidate> candidates);

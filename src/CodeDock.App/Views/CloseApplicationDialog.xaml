@@ -1,0 +1,38 @@
+<Window x:Class="CodeDock.App.Views.CloseApplicationDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Close CodeDock"
+        Width="590"
+        Height="270"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource CanvasBrush}"
+        Foreground="{StaticResource TextBrush}">
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Close CodeDock" FontSize="22" FontWeight="SemiBold" />
+        <TextBlock x:Name="DescriptionText"
+                   Grid.Row="1"
+                   Margin="0,8,0,22"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel" Margin="0,0,9,0" IsCancel="True" />
+            <Button Content="Close CodeDock and IDEs"
+                    Margin="0,0,9,0"
+                    Click="OnCloseIdesClick" />
+            <Button Style="{StaticResource PrimaryButton}"
+                    Content="Close CodeDock only"
+                    IsDefault="True"
+                    Click="OnLeaveIdesOpenClick" />
+        </StackPanel>
+    </Grid>
+</Window>

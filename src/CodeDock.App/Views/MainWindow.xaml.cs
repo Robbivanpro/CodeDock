@@ -16,6 +16,8 @@ public partial class MainWindow : Window
 {
     private readonly ILogger<MainWindow> _logger;
     private readonly IUserDialogService _dialogService;
+    private readonly AppNotificationMonitor _notificationMonitor = new();
+    private readonly DispatcherTimer _notificationTimer;
     private bool _shutdownCompleted;
     private bool _tabDragPending;
     private Point _tabDragStart;
@@ -25,9 +27,24 @@ public partial class MainWindow : Window
         _logger = logger;
         _dialogService = dialogService;
         InitializeComponent();
+        _notificationTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        _notificationTimer.Tick += OnNotificationTimerTick;
+        _notificationTimer.Start();
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext;
+
+    private void OnNotificationTimerTick(object? sender, EventArgs e)
+    {
+        if (DataContext is MainWindowViewModel viewModel
+            && _notificationMonitor.PollNotifications(viewModel.AppWorkspaces))
+        {
+            viewModel.RefreshNotificationSummary();
+        }
+    }
 
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
@@ -37,6 +54,15 @@ public partial class MainWindow : Window
         }
 
         e.Cancel = true;
+        var openIdeCount = ViewModel.Projects.Count(project => project.HasAssociatedWindow);
+        var closeChoice = openIdeCount == 0
+            ? ApplicationCloseChoice.LeaveIdesOpen
+            : _dialogService.ChooseApplicationCloseBehavior(openIdeCount);
+        if (closeChoice == ApplicationCloseChoice.Cancel)
+        {
+            return;
+        }
+
         if (!TryDetachAllEmbedded(out var detachError))
         {
             MessageBox.Show(
@@ -45,10 +71,20 @@ public partial class MainWindow : Window
                 "CodeDock detach error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
+            IsEnabled = true;
             return;
         }
 
+        // Detach before sending WM_CLOSE so save prompts belong to normal,
+        // interactive desktop windows instead of a disabled WPF host.
         IsEnabled = false;
+        if (closeChoice == ApplicationCloseChoice.CloseIdes
+            && !await ViewModel.CloseAllIdeWindowsAsync())
+        {
+            IsEnabled = true;
+            return;
+        }
+
         try
         {
             await ViewModel.ShutdownAsync();
@@ -221,6 +257,97 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnSelectAntigravityClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            project.PreferredEnvironment = DevelopmentEnvironment.Antigravity;
+            await ViewModel.SetPreferredEnvironmentAsync(project);
+        }
+    }
+
+    private void OnAppsDropdownButtonClick(object sender, RoutedEventArgs e) =>
+        AppsDropdownPopup.IsOpen = !AppsDropdownPopup.IsOpen;
+
+    private void OnSelectAppWorkspaceClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            ViewModel.SelectedProject = project;
+            AppsDropdownPopup.IsOpen = false;
+        }
+    }
+
+    private async void OnAddTeamsClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.MicrosoftTeams);
+    }
+
+    private async void OnAddOutlookClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.MicrosoftOutlook);
+    }
+
+    private async void OnAddWhatsAppClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.WhatsApp);
+    }
+
+    private async void OnAddSpotifyClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.Spotify);
+    }
+
+    private async void OnAddEdgeClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.MicrosoftEdge);
+    }
+
+    private async void OnAddChromeClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.GoogleChrome);
+    }
+
+    private async void OnSaveProjectNameClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            await ViewModel.CommitProjectNameAsync(project);
+        }
+    }
+
+    private async void OnProjectNameKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is TextBox { DataContext: ProjectTabViewModel project })
+        {
+            await ViewModel.CommitProjectNameAsync(project);
+            e.Handled = true;
+        }
+    }
+
+    private async void OnSaveLaunchTargetUrlClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            await ViewModel.SaveLaunchTargetUrlAsync(project);
+        }
+    }
+
+    private async void OnLaunchTargetUrlKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is TextBox { DataContext: ProjectTabViewModel project })
+        {
+            await ViewModel.SaveLaunchTargetUrlAsync(project);
+            e.Handled = true;
+        }
+    }
+
     private void OnMinimizeClick(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
     private void OnMaximizeClick(object sender, RoutedEventArgs e) =>
@@ -318,6 +445,11 @@ public partial class MainWindow : Window
             if (host is not null)
             {
                 host.UpdateLayout();
+                if (!host.IsAttached && host.LastError is null && project.WindowHandle is { } windowHandle && windowHandle != 0)
+                {
+                    host.TryAttach(windowHandle);
+                }
+
                 if (host.IsAttached || host.LastError is not null)
                 {
                     return host;

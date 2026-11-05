@@ -19,6 +19,17 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
 
         try
         {
+            var environment = project.PreferredEnvironment;
+            if (environment.IsSingleInstanceApp())
+            {
+                return Task.FromResult(LaunchSingleInstanceApp(project, installation));
+            }
+
+            if (environment.IsBrowserEnvironment())
+            {
+                return Task.FromResult(LaunchBrowser(project, installation));
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = installation.ExecutablePath,
@@ -29,7 +40,7 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
             // becomes a child window. Visual Studio's WPF shell must complete
             // its initial top-level layout first or its client area can remain
             // permanently blank after reparenting.
-            if (project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode)
+            if (IsChromiumEnvironment(environment))
             {
                 startInfo.WindowStyle = ProcessWindowStyle.Minimized;
             }
@@ -40,40 +51,122 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
                 return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure(targetResult.Error ?? "No launch target is available."));
             }
 
-            if (project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode)
+            if (IsChromiumEnvironment(environment))
             {
                 startInfo.ArgumentList.Add("--new-window");
             }
 
             startInfo.ArgumentList.Add(targetResult.Value);
-            using var process = Process.Start(startInfo);
-            if (process is null)
-            {
-                return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure("Windows did not create an IDE process."));
-            }
-
-            long processStartTimeUtcTicks;
-            try
-            {
-                processStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
-            }
-            catch (InvalidOperationException)
-            {
-                processStartTimeUtcTicks = 0;
-            }
-
-            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(
-                new IdeLaunchReceipt(process.Id, processStartTimeUtcTicks, targetResult.Value)));
+            return Task.FromResult(StartProcessAndCreateReceipt(startInfo, targetResult.Value));
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or IOException)
         {
-            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure($"The IDE could not be started: {exception.Message}"));
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Failure($"The application could not be started: {exception.Message}"));
+        }
+    }
+
+    private static OperationResult<IdeLaunchReceipt> LaunchSingleInstanceApp(
+        ProjectWorkspace project,
+        IdeInstallation installation)
+    {
+        ProcessStartInfo startInfo;
+        if (installation.ExecutablePath.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
+        {
+            startInfo = new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = installation.ExecutablePath,
+                UseShellExecute = true
+            };
+        }
+        else
+        {
+            startInfo = new ProcessStartInfo
+            {
+                FileName = installation.ExecutablePath,
+                UseShellExecute = true
+            };
+
+            if (!string.IsNullOrWhiteSpace(project.WorkspaceFilePath))
+            {
+                startInfo.Arguments = project.WorkspaceFilePath.Trim();
+            }
+        }
+
+        using var process = Process.Start(startInfo);
+        if (process is null)
+        {
+            return OperationResult<IdeLaunchReceipt>.Success(new IdeLaunchReceipt(0, 0, project.WorkspaceFilePath));
+        }
+
+        return OperationResult<IdeLaunchReceipt>.Success(
+            new IdeLaunchReceipt(process.Id, TryGetStartTimeTicks(process), project.WorkspaceFilePath));
+    }
+
+    private static OperationResult<IdeLaunchReceipt> LaunchBrowser(
+        ProjectWorkspace project,
+        IdeInstallation installation)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = installation.ExecutablePath,
+            UseShellExecute = false
+        };
+
+        startInfo.ArgumentList.Add("--new-window");
+        if (!string.IsNullOrWhiteSpace(project.FolderPath))
+        {
+            try
+            {
+                Directory.CreateDirectory(project.FolderPath);
+                startInfo.ArgumentList.Add($"--user-data-dir={project.FolderPath}");
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Fall back to default browser profile if the folder cannot be created.
+            }
+        }
+
+        var targetUrl = string.IsNullOrWhiteSpace(project.WorkspaceFilePath)
+            ? null
+            : project.WorkspaceFilePath.Trim();
+        if (!string.IsNullOrWhiteSpace(targetUrl))
+        {
+            startInfo.ArgumentList.Add(targetUrl);
+        }
+
+        return StartProcessAndCreateReceipt(startInfo, targetUrl);
+    }
+
+    private static OperationResult<IdeLaunchReceipt> StartProcessAndCreateReceipt(
+        ProcessStartInfo startInfo,
+        string? launchTargetPath)
+    {
+        using var process = Process.Start(startInfo);
+        if (process is null)
+        {
+            return OperationResult<IdeLaunchReceipt>.Failure("Windows did not create a process.");
+        }
+
+        return OperationResult<IdeLaunchReceipt>.Success(
+            new IdeLaunchReceipt(process.Id, TryGetStartTimeTicks(process), launchTargetPath));
+    }
+
+    private static long TryGetStartTimeTicks(Process process)
+    {
+        try
+        {
+            return process.StartTime.ToUniversalTime().Ticks;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            return 0;
         }
     }
 
     private OperationResult<string> ResolveTarget(ProjectWorkspace project)
     {
-        if (project.PreferredEnvironment == DevelopmentEnvironment.VisualStudioCode)
+        if (IsChromiumEnvironment(project.PreferredEnvironment))
         {
             var target = !string.IsNullOrWhiteSpace(project.WorkspaceFilePath) && File.Exists(project.WorkspaceFilePath)
                 ? project.WorkspaceFilePath
@@ -204,4 +297,7 @@ public sealed class WindowsIdeLauncher : IIdeLauncher
     private static bool IsVisualStudioSolution(string path) =>
         string.Equals(Path.GetExtension(path), ".sln", StringComparison.OrdinalIgnoreCase)
         || string.Equals(Path.GetExtension(path), ".slnx", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsChromiumEnvironment(DevelopmentEnvironment environment) =>
+        environment is DevelopmentEnvironment.VisualStudioCode or DevelopmentEnvironment.Antigravity;
 }

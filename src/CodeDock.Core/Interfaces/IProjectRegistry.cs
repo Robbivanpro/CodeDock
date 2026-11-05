@@ -12,6 +12,12 @@ public interface IProjectRegistry
 
     Task<OperationResult<ProjectWorkspace>> AddProjectAsync(string folderPath, CancellationToken cancellationToken = default);
 
+    Task<OperationResult<ProjectWorkspace>> AddAppWorkspaceAsync(
+        DevelopmentEnvironment environment,
+        string? customName = null,
+        string? launchTarget = null,
+        CancellationToken cancellationToken = default);
+
     Task<OperationResult> RemoveProjectAsync(Guid projectId, CancellationToken cancellationToken = default);
 
     Task<OperationResult> RenameProjectAsync(Guid projectId, string name, CancellationToken cancellationToken = default);

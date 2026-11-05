@@ -76,11 +76,12 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
                 <ListBox x:Name="ProjectTabs"
-                         ItemsSource="{Binding Projects}"
-                         SelectedItem="{Binding SelectedProject}"
+                         ItemsSource="{Binding CodeProjects}"
+                         SelectedItem="{Binding SelectedCodeProject, Mode=TwoWay}"
                          Background="Transparent"
                          BorderThickness="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Hidden"
@@ -146,6 +147,9 @@
                                                 <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
                                                     <Setter Property="Background" Value="#3D2761" />
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Antigravity}">
+                                                    <Setter Property="Background" Value="#3B2A14" />
+                                                </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
@@ -158,6 +162,10 @@
                                                     <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
                                                         <Setter Property="Text" Value="VS" />
                                                         <Setter Property="Foreground" Value="#C4A7FF" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Antigravity}">
+                                                        <Setter Property="Text" Value="AG" />
+                                                        <Setter Property="Foreground" Value="#FFB84D" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -198,14 +206,269 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <Button Grid.Column="1"
+                <Grid Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <Button x:Name="AppsDropdownButton"
+                            Padding="13,7"
+                            ToolTip="Manage and switch Apps &amp; Browser windows"
+                            Click="OnAppsDropdownButtonClick">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource GhostButton}">
+                                <Setter Property="Background" Value="#141B29" />
+                                <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsAppWorkspaceSelected}" Value="True">
+                                        <Setter Property="Background" Value="#1D2B44" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
+                                        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasAnyAppNotification}" Value="True">
+                                        <Setter Property="BorderBrush" Value="#FF4D5E" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" Fill="#FF4D5E" Margin="0,0,7,0" VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasAnyAppNotification}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding AppsMenuHeader}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <Popup x:Name="AppsDropdownPopup"
+                           PlacementTarget="{Binding ElementName=AppsDropdownButton}"
+                           Placement="Bottom"
+                           VerticalOffset="6"
+                           StaysOpen="False"
+                           AllowsTransparency="True">
+                        <Border Width="320"
+                                Padding="12"
+                                Background="#131824"
+                                BorderBrush="{StaticResource StrokeBrightBrush}"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <StackPanel>
+                                <TextBlock Text="APPS &amp; BROWSERS"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="9"
+                                           FontWeight="Bold"
+                                           Margin="4,2,4,8" />
+
+                                <TextBlock Text="No apps added yet. Choose one below."
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="11"
+                                           Margin="4,2,4,10">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasAppWorkspaces}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <ItemsControl ItemsSource="{Binding AppWorkspaces}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:ProjectTabViewModel}">
+                                            <Border Margin="0,0,0,4"
+                                                    Padding="6,5"
+                                                    CornerRadius="7"
+                                                    BorderThickness="1">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="BorderBrush" Value="Transparent" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+                                                                <Setter Property="BorderBrush" Value="{StaticResource StrokeBrightBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button Grid.Column="0"
+                                                            Style="{StaticResource GhostButton}"
+                                                            HorizontalContentAlignment="Left"
+                                                            Padding="4,3"
+                                                            Click="OnSelectAppWorkspaceClick">
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Border Width="22" Height="22" CornerRadius="5">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Setter Property="Background" Value="#2D235A" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.MicrosoftOutlook}">
+                                                                                <Setter Property="Background" Value="#123866" />
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.WhatsApp}">
+                                                                                <Setter Property="Background" Value="#11422C" />
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Spotify}">
+                                                                                <Setter Property="Background" Value="#143D28" />
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.MicrosoftEdge}">
+                                                                                <Setter Property="Background" Value="#143A4A" />
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.GoogleChrome}">
+                                                                                <Setter Property="Background" Value="#422B14" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                                <TextBlock FontSize="8.5" FontFamily="Cascadia Code, Consolas" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Text" Value="TM" />
+                                                                            <Setter Property="Foreground" Value="#B49BFF" />
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.MicrosoftOutlook}">
+                                                                                    <Setter Property="Text" Value="OL" />
+                                                                                    <Setter Property="Foreground" Value="#60A5FA" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.WhatsApp}">
+                                                                                    <Setter Property="Text" Value="WA" />
+                                                                                    <Setter Property="Foreground" Value="#34D399" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Spotify}">
+                                                                                    <Setter Property="Text" Value="SP" />
+                                                                                    <Setter Property="Foreground" Value="#4ADE80" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.MicrosoftEdge}">
+                                                                                    <Setter Property="Text" Value="ED" />
+                                                                                    <Setter Property="Foreground" Value="#38BDF8" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.GoogleChrome}">
+                                                                                    <Setter Property="Text" Value="CH" />
+                                                                                    <Setter Property="Foreground" Value="#FBBF24" />
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
+                                                            </Border>
+                                                            <TextBlock Text="{Binding Name}"
+                                                                       MaxWidth="155"
+                                                                       Margin="9,0,6,0"
+                                                                       FontSize="12"
+                                                                       FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center" />
+                                                            <Ellipse Width="6" Height="6" VerticalAlignment="Center">
+                                                                <Ellipse.Style>
+                                                                    <Style TargetType="Ellipse">
+                                                                        <Setter Property="Fill" Value="{StaticResource TextMutedBrush}" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding HasAssociatedWindow}" Value="True">
+                                                                                <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Ellipse.Style>
+                                                            </Ellipse>
+                                                            <Ellipse Width="8" Height="8" Fill="#FF4D5E" Margin="6,0,0,0" VerticalAlignment="Center" ToolTip="New notification or unread message">
+                                                                <Ellipse.Style>
+                                                                    <Style TargetType="Ellipse">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding HasUnreadNotification}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Ellipse.Style>
+                                                            </Ellipse>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Grid.Column="1"
+                                                            Style="{StaticResource GhostButton}"
+                                                            Content="×"
+                                                            Padding="6,1"
+                                                            FontSize="14"
+                                                            Foreground="{StaticResource TextMutedBrush}"
+                                                            ToolTip="Close app and remove from list"
+                                                            Click="OnRemoveProjectClick" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Border Height="1" Background="{StaticResource StrokeBrush}" Margin="0,8" />
+
+                                <TextBlock Text="ADD NEW INSTANCE"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="9"
+                                           FontWeight="Bold"
+                                           Margin="4,0,4,6" />
+                                <UniformGrid Columns="2">
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ Teams"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddTeamsClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ Outlook"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddOutlookClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ WhatsApp"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddWhatsAppClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ Spotify"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddSpotifyClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ Edge window"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddEdgeClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ Chrome window"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddChromeClick" />
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </Grid>
+
+                <Button Grid.Column="2"
                         Style="{StaticResource PrimaryButton}"
                         Content="＋  Add workspace"
                         Margin="8,0,10,0"
                         ToolTip="Add project (Ctrl+T)"
                         Command="{Binding AddProjectCommand}" />
 
-                <Menu Grid.Column="2" VerticalAlignment="Center">
+                <Menu Grid.Column="3" VerticalAlignment="Center">
                     <MenuItem Header="•••" FontSize="16" Padding="12,7" ToolTip="Settings">
                         <MenuItem Header="Dark theme" IsCheckable="True" IsChecked="True" IsEnabled="False" />
                         <MenuItem Header="Window Manager mode" IsCheckable="True" IsChecked="True" IsEnabled="False" />
@@ -231,7 +494,7 @@
                         <Image Source="/Assets/CodeDock.Mark.png" Width="82" Height="82" />
                     </Border>
                     <TextBlock Text="Your workspaces, one dock." FontSize="28" FontWeight="SemiBold" Margin="0,24,0,8" HorizontalAlignment="Center" />
-                    <TextBlock Text="Bring every VS Code and Visual Studio project into a focused, persistent workspace."
+                    <TextBlock Text="Bring every VS Code, Visual Studio, and Antigravity project into a focused, persistent workspace."
                                Foreground="{StaticResource TextSecondaryBrush}"
                                FontSize="14"
                                LineHeight="22"
@@ -295,7 +558,73 @@
                 <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource Card}" Padding="24">
                     <StackPanel>
                         <TextBlock Text="WORKSPACE DETAILS" Foreground="{StaticResource TextMutedBrush}" FontSize="10" FontWeight="Bold" />
-                        <Grid Margin="0,22,0,0">
+
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Display name" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" />
+                                <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                         Margin="0,5,10,0"
+                                         Padding="9,6"
+                                         Background="#0D1016"
+                                         Foreground="{StaticResource TextBrush}"
+                                         BorderBrush="{StaticResource StrokeBrush}"
+                                         BorderThickness="1"
+                                         FontSize="12"
+                                         KeyDown="OnProjectNameKeyDown" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Style="{StaticResource GhostButton}"
+                                    Content="Save name"
+                                    VerticalAlignment="Bottom"
+                                    Padding="12,6"
+                                    Click="OnSaveProjectNameClick" />
+                        </Grid>
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.Style>
+                                <Style TargetType="Grid">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsBrowserWorkspace}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Grid.Style>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Startup URL (e.g. https://outlook.office.com or https://web.whatsapp.com)"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="11" />
+                                <TextBox Text="{Binding LaunchTargetUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         Margin="0,5,10,0"
+                                         Padding="9,6"
+                                         Background="#0D1016"
+                                         Foreground="{StaticResource TextBrush}"
+                                         BorderBrush="{StaticResource StrokeBrush}"
+                                         BorderThickness="1"
+                                         FontFamily="Cascadia Mono, Consolas"
+                                         FontSize="12"
+                                         KeyDown="OnLaunchTargetUrlKeyDown" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Style="{StaticResource GhostButton}"
+                                    Content="Save URL"
+                                    VerticalAlignment="Bottom"
+                                    Padding="12,6"
+                                    Click="OnSaveLaunchTargetUrlClick" />
+                        </Grid>
+
+                        <Border Height="1" Background="{StaticResource StrokeBrush}" Margin="0,18" />
+
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="38" />
                                 <ColumnDefinition Width="*" />
@@ -304,12 +633,26 @@
                                 <TextBlock Text="⌁" Foreground="{StaticResource CyanBrush}" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="Project folder" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" />
+                                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="11">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="Project folder" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsAppOrBrowserWorkspace}" Value="True">
+                                                    <Setter Property="Text" Value="Application workspace data folder" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsBrowserWorkspace}" Value="True">
+                                                    <Setter Property="Text" Value="Shared CodeDock browser profile" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                                 <TextBlock Text="{Binding FolderPath}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Margin="0,5,0,0" TextWrapping="Wrap" />
                             </StackPanel>
                         </Grid>
 
-                        <Border Height="1" Background="{StaticResource StrokeBrush}" Margin="0,22" />
+                        <Border Height="1" Background="{StaticResource StrokeBrush}" Margin="0,18" />
 
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -320,28 +663,25 @@
                                 <TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="Local status" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" />
-                                <TextBlock Margin="0,5,0,0" FontSize="13" FontWeight="SemiBold">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="Folder available" />
-                                            <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsFolderAvailable}" Value="False">
-                                                    <Setter Property="Text" Value="Folder unavailable" />
-                                                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                <TextBlock Text="Environment" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" />
+                                <TextBlock Text="{Binding EnvironmentDisplayName}" Margin="0,5,0,0" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>
                 </Border>
 
                 <StackPanel Grid.Row="2" Grid.Column="2">
-                    <Border Style="{StaticResource Card}" Padding="22">
+                    <Border Padding="22" Margin="0,0,0,18">
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource Card}">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCodeWorkspace}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <StackPanel>
                             <TextBlock Text="OPEN WITH" Foreground="{StaticResource TextMutedBrush}" FontSize="10" FontWeight="Bold" />
                             <TextBlock Text="Preferred environment" FontSize="17" FontWeight="SemiBold" Margin="0,7,0,3" />
@@ -351,6 +691,7 @@
                             <Border Margin="0,18,0,0" Padding="3" Background="#0D1016" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="9">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
@@ -400,12 +741,35 @@
                                             <TextBlock Text="Visual Studio" />
                                         </StackPanel>
                                     </Button>
+                                    <Button Grid.Column="2"
+                                            Click="OnSelectAntigravityClick"
+                                            ToolTipService.ShowOnDisabled="True">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource EnvironmentButton}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Antigravity}">
+                                                        <Setter Property="Background" Value="#473116" />
+                                                        <Setter Property="BorderBrush" Value="#9A6423" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsAntigravityAvailable}" Value="False">
+                                                        <Setter Property="IsEnabled" Value="False" />
+                                                        <Setter Property="Opacity" Value="0.38" />
+                                                        <Setter Property="ToolTip" Value="Antigravity already has a tab for this folder." />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="AG" Foreground="#FFB84D" FontWeight="Bold" Margin="0,0,7,0" />
+                                            <TextBlock Text="Antigravity" />
+                                        </StackPanel>
+                                    </Button>
                                 </Grid>
                             </Border>
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource Card}" Padding="22" Margin="0,18,0,0">
+                    <Border Style="{StaticResource Card}" Padding="22">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="36" />

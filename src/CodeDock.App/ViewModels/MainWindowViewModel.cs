@@ -39,10 +39,41 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<ProjectTabViewModel> Projects { get; } = [];
 
+    public ObservableCollection<ProjectTabViewModel> CodeProjects { get; } = [];
+
+    public ObservableCollection<ProjectTabViewModel> AppWorkspaces { get; } = [];
+
     public IReadOnlyList<DevelopmentEnvironment> AvailableEnvironments { get; } = Enum.GetValues<DevelopmentEnvironment>();
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedCodeProject))]
+    [NotifyPropertyChangedFor(nameof(IsAppWorkspaceSelected))]
+    [NotifyPropertyChangedFor(nameof(AppsMenuHeader))]
     private ProjectTabViewModel? _selectedProject;
+
+    public ProjectTabViewModel? SelectedCodeProject
+    {
+        get => SelectedProject is { IsCodeWorkspace: true } codeProject ? codeProject : null;
+        set
+        {
+            if (value is not null)
+            {
+                SelectedProject = value;
+            }
+        }
+    }
+
+    public bool IsAppWorkspaceSelected => SelectedProject is { IsAppOrBrowserWorkspace: true };
+
+    public bool HasAppWorkspaces => AppWorkspaces.Count > 0;
+
+    public bool HasAnyAppNotification => AppWorkspaces.Any(app => app.HasUnreadNotification);
+
+    public string AppsMenuHeader => SelectedProject is { IsAppOrBrowserWorkspace: true } app
+        ? $"{app.Name}  ▾"
+        : AppWorkspaces.Count > 0
+            ? $"Apps & Web ({AppWorkspaces.Count})  ▾"
+            : "Apps & Web  ▾";
 
     [ObservableProperty]
     private string _statusMessage = "Ready";
@@ -66,13 +97,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Projects.Add(new ProjectTabViewModel(project));
             }
 
+            SyncWorkspaceCollections();
             RefreshEnvironmentAvailability();
 
             SelectedProject = Projects.FirstOrDefault(project => project.Id == _session.SelectedProjectId)
                 ?? Projects.FirstOrDefault();
             StatusMessage = Projects.Count == 0
-                ? "Add a project folder to create your first tab."
-                : $"{Projects.Count} project{(Projects.Count == 1 ? string.Empty : "s")} restored.";
+                ? "Add a project folder or an app to create your first workspace."
+                : $"{Projects.Count} workspace{(Projects.Count == 1 ? string.Empty : "s")} restored.";
             _isInitialized = true;
             if (SelectedProject is not null)
             {
@@ -116,6 +148,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var tab = new ProjectTabViewModel(result.Value);
             Projects.Add(tab);
+            SyncWorkspaceCollections();
             RefreshEnvironmentAvailability();
             SelectedProject = tab;
             StatusMessage = $"Added {tab.Name} for {GetEnvironmentName(tab.PreferredEnvironment)}.";
@@ -123,6 +156,45 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception exception)
         {
             HandleFailure(exception, "The project could not be saved.");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    public async Task AddAppWorkspaceAsync(
+        DevelopmentEnvironment environment,
+        string? customName = null,
+        string? launchTarget = null)
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = $"Adding {environment.GetDisplayName()}…";
+        try
+        {
+            var result = await _registry.AddAppWorkspaceAsync(environment, customName, launchTarget);
+            if (!result.IsSuccess || result.Value is null)
+            {
+                StatusMessage = result.Error ?? "The application workspace could not be added.";
+                _dialogService.ShowWarning(StatusMessage);
+                return;
+            }
+
+            var tab = new ProjectTabViewModel(result.Value);
+            Projects.Add(tab);
+            SyncWorkspaceCollections();
+            RefreshEnvironmentAvailability();
+            SelectedProject = tab;
+            StatusMessage = $"Added {tab.Name} to Apps & Web.";
+        }
+        catch (Exception exception)
+        {
+            HandleFailure(exception, "The application workspace could not be saved.");
         }
         finally
         {
@@ -192,13 +264,38 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (result.IsSuccess)
         {
             project.AcceptName(project.Name.Trim());
-            StatusMessage = $"Renamed project to {project.Name}.";
+            OnPropertyChanged(nameof(AppsMenuHeader));
+            StatusMessage = $"Renamed workspace to {project.Name}.";
             return;
         }
 
         project.RestoreName();
         StatusMessage = result.Error ?? "The project could not be renamed.";
         _dialogService.ShowWarning(StatusMessage);
+    }
+
+    public async Task SaveLaunchTargetUrlAsync(ProjectTabViewModel project)
+    {
+        var model = _registry.Projects.FirstOrDefault(item => item.Id == project.Id);
+        if (model is null)
+        {
+            return;
+        }
+
+        model.WorkspaceFilePath = string.IsNullOrWhiteSpace(project.LaunchTargetUrl)
+            ? null
+            : project.LaunchTargetUrl.Trim();
+        var result = await _registry.UpdateProjectAsync(model);
+        if (!result.IsSuccess)
+        {
+            _dialogService.ShowWarning(result.Error ?? "The startup URL could not be saved.");
+            return;
+        }
+
+        project.RefreshLaunchTarget();
+        StatusMessage = string.IsNullOrWhiteSpace(model.WorkspaceFilePath)
+            ? $"Cleared startup URL for {project.Name}."
+            : $"Saved startup URL for {project.Name}.";
     }
 
     public async Task MoveProjectAsync(ProjectTabViewModel project, ProjectTabViewModel target)
@@ -218,6 +315,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         Projects.Move(oldIndex, newIndex);
+        SyncWorkspaceCollections();
         StatusMessage = "Tab order saved.";
     }
 
@@ -248,10 +346,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var result = await _registry.SetPreferredEnvironmentAsync(project.Id, project.PreferredEnvironment);
         if (result.IsSuccess)
         {
+            SyncWorkspaceCollections();
             RefreshEnvironmentAvailability();
-            StatusMessage = project.PreferredEnvironment == DevelopmentEnvironment.VisualStudio2022
-                ? $"{project.Name} will open with Visual Studio 2022."
-                : $"{project.Name} will open with VS Code.";
+            OnPropertyChanged(nameof(SelectedCodeProject));
+            OnPropertyChanged(nameof(IsAppWorkspaceSelected));
+            OnPropertyChanged(nameof(AppsMenuHeader));
+            StatusMessage = $"{project.Name} will open with {GetEnvironmentName(project.PreferredEnvironment)}.";
             return;
         }
 
@@ -435,6 +535,48 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await SaveSessionAsync(cancellationToken);
     }
 
+    public async Task<bool> CloseAllIdeWindowsAsync(CancellationToken cancellationToken = default)
+    {
+        foreach (var project in Projects.Where(project => project.HasAssociatedWindow).ToList())
+        {
+            if (project.IsIdeBusy)
+            {
+                _dialogService.ShowWarning($"Wait for the current IDE operation for '{project.Name}' to finish before closing CodeDock.");
+                return false;
+            }
+
+            project.IsIdeBusy = true;
+            project.IdeStatus = "Waiting for the IDE to closeâ€¦";
+            try
+            {
+                var closeResult = await _ideWorkspaceService.CloseAsync(
+                    project.Id,
+                    TimeSpan.FromSeconds(30),
+                    cancellationToken);
+                project.IdeStatus = closeResult.Message;
+                StatusMessage = closeResult.Message;
+                SyncSession(project);
+                if (!closeResult.CanRemoveTab)
+                {
+                    _dialogService.ShowWarning(
+                        $"CodeDock stayed open because '{project.Name}' did not close.\n\n{closeResult.Message}");
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                HandleFailure(exception, $"The IDE for '{project.Name}' could not be closed safely.");
+                return false;
+            }
+            finally
+            {
+                project.IsIdeBusy = false;
+            }
+        }
+
+        return true;
+    }
+
     partial void OnSelectedProjectChanged(ProjectTabViewModel? oldValue, ProjectTabViewModel? newValue)
     {
         if (oldValue is not null)
@@ -445,6 +587,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (newValue is not null)
         {
             newValue.IsSelected = true;
+            if (newValue.HasUnreadNotification)
+            {
+                newValue.HasUnreadNotification = false;
+                RefreshNotificationSummary();
+            }
         }
 
         if (!_isInitialized)
@@ -478,11 +625,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         Projects.Remove(project);
+        SyncWorkspaceCollections();
         RefreshEnvironmentAvailability();
         SelectedProject = Projects.Count == 0 ? null : Projects[Math.Min(index, Projects.Count - 1)];
         StatusMessage = $"Removed {project.Name} from CodeDock.";
         return true;
     }
+
+    private void SyncWorkspaceCollections()
+    {
+        CodeProjects.Clear();
+        AppWorkspaces.Clear();
+        foreach (var project in Projects)
+        {
+            if (project.IsCodeWorkspace)
+            {
+                CodeProjects.Add(project);
+            }
+            else
+            {
+                AppWorkspaces.Add(project);
+            }
+        }
+
+        OnPropertyChanged(nameof(HasAppWorkspaces));
+        OnPropertyChanged(nameof(HasAnyAppNotification));
+        OnPropertyChanged(nameof(AppsMenuHeader));
+    }
+
+    public void RefreshNotificationSummary() =>
+        OnPropertyChanged(nameof(HasAnyAppNotification));
 
     private void RefreshEnvironmentAvailability()
     {
@@ -496,11 +668,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 || !Projects.Any(other => other.Id != project.Id
                     && other.PreferredEnvironment == DevelopmentEnvironment.VisualStudio2022
                     && string.Equals(other.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase));
+            project.IsAntigravityAvailable = project.PreferredEnvironment == DevelopmentEnvironment.Antigravity
+                || !Projects.Any(other => other.Id != project.Id
+                    && other.PreferredEnvironment == DevelopmentEnvironment.Antigravity
+                    && string.Equals(other.FolderPath, project.FolderPath, StringComparison.OrdinalIgnoreCase));
         }
     }
 
-    private static string GetEnvironmentName(DevelopmentEnvironment environment) =>
-        environment == DevelopmentEnvironment.VisualStudio2022 ? "Visual Studio 2022" : "VS Code";
+    private static string GetEnvironmentName(DevelopmentEnvironment environment) => environment.GetDisplayName();
 
     private async Task<bool> EnsureVisualStudioSolutionAsync(
         ProjectTabViewModel project,
