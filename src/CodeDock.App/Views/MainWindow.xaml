@@ -324,6 +324,9 @@
                                                                             <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Spotify}">
                                                                                 <Setter Property="Background" Value="#143D28" />
                                                                             </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Obsidian}">
+                                                                                <Setter Property="Background" Value="#381D52" />
+                                                                            </DataTrigger>
                                                                             <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.MicrosoftEdge}">
                                                                                 <Setter Property="Background" Value="#143A4A" />
                                                                             </DataTrigger>
@@ -350,6 +353,10 @@
                                                                                 <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Spotify}">
                                                                                     <Setter Property="Text" Value="SP" />
                                                                                     <Setter Property="Foreground" Value="#4ADE80" />
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Obsidian}">
+                                                                                    <Setter Property="Text" Value="OB" />
+                                                                                    <Setter Property="Foreground" Value="#C084FC" />
                                                                                 </DataTrigger>
                                                                                 <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.MicrosoftEdge}">
                                                                                     <Setter Property="Text" Value="ED" />
@@ -443,6 +450,12 @@
                                             Margin="2"
                                             Padding="8,6"
                                             Click="OnAddSpotifyClick" />
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="＋ Obsidian"
+                                            HorizontalContentAlignment="Left"
+                                            Margin="2"
+                                            Padding="8,6"
+                                            Click="OnAddObsidianClick" />
                                     <Button Style="{StaticResource GhostButton}"
                                             Content="＋ Edge window"
                                             HorizontalContentAlignment="Left"
@@ -896,7 +909,9 @@
                                 </Grid>
                             </Border>
                             <Border Grid.Row="1" Background="#080A0E" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1,0,1,1">
-                                <controls:ExternalWindowHost WindowHandle="{Binding EmbeddedWindowHandle, TargetNullValue=0}" />
+                                <controls:ExternalWindowHost WindowHandle="{Binding EmbeddedWindowHandle, TargetNullValue=0}"
+                                                             RequiresContentResizeKick="{Binding RequiresEmbeddedResizeKick}"
+                                                             RequiresElectronRenderKick="{Binding RequiresElectronRenderKick}" />
                             </Border>
                         </Grid>
                     </DataTemplate>

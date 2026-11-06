@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -23,11 +24,8 @@ public sealed class ExternalWindowHost : HwndHost
     private const long WsMinimizeBox = 0x00020000L;
     private const long WsMaximizeBox = 0x00010000L;
     private const long WsTabStop = 0x00010000L;
-    private const long WsExDialogModalFrame = 0x00000001L;
-    private const long WsExWindowEdge = 0x00000100L;
-    private const long WsExClientEdge = 0x00000200L;
-    private const long WsExAppWindow = 0x00040000L;
     private const int WmParentNotify = 0x0210;
+    private const uint WmSize = 0x0005;
     private const int WmLButtonDown = 0x0201;
     private const int WmRButtonDown = 0x0204;
     private const int WmMButtonDown = 0x0207;
@@ -40,6 +38,10 @@ public sealed class ExternalWindowHost : HwndHost
     private const uint SwpShowWindow = 0x0040;
     private const uint WsClipChildren = 0x02000000;
     private const uint WsClipSiblings = 0x04000000;
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwErase = 0x0004;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
 
     private IntPtr _hostHandle;
     private IntPtr _externalHandle;
@@ -55,6 +57,18 @@ public sealed class ExternalWindowHost : HwndHost
         typeof(ExternalWindowHost),
         new FrameworkPropertyMetadata(0L, OnWindowHandleChanged));
 
+    public static readonly DependencyProperty RequiresContentResizeKickProperty = DependencyProperty.Register(
+        nameof(RequiresContentResizeKick),
+        typeof(bool),
+        typeof(ExternalWindowHost),
+        new FrameworkPropertyMetadata(false));
+
+    public static readonly DependencyProperty RequiresElectronRenderKickProperty = DependencyProperty.Register(
+        nameof(RequiresElectronRenderKick),
+        typeof(bool),
+        typeof(ExternalWindowHost),
+        new FrameworkPropertyMetadata(false));
+
     public ExternalWindowHost()
     {
         Focusable = true;
@@ -66,6 +80,18 @@ public sealed class ExternalWindowHost : HwndHost
     {
         get => (long)GetValue(WindowHandleProperty);
         set => SetValue(WindowHandleProperty, value);
+    }
+
+    public bool RequiresContentResizeKick
+    {
+        get => (bool)GetValue(RequiresContentResizeKickProperty);
+        set => SetValue(RequiresContentResizeKickProperty, value);
+    }
+
+    public bool RequiresElectronRenderKick
+    {
+        get => (bool)GetValue(RequiresElectronRenderKickProperty);
+        set => SetValue(RequiresElectronRenderKickProperty, value);
     }
 
     public bool IsAttached => _externalHandle != IntPtr.Zero;
@@ -292,20 +318,6 @@ public sealed class ExternalWindowHost : HwndHost
             return false;
         }
 
-        var currentExtendedStyle = NativeMethods.GetWindowLongPtr(externalHandle, GwlExStyle).ToInt64();
-        const long topLevelExtendedStyleMask = WsExDialogModalFrame
-            | WsExWindowEdge
-            | WsExClientEdge
-            | WsExAppWindow;
-        var hostedExtendedStyle = new IntPtr(currentExtendedStyle & ~topLevelExtendedStyleMask);
-        if (!TrySetWindowLong(externalHandle, GwlExStyle, hostedExtendedStyle, out var extendedStyleError))
-        {
-            TrySetWindowLong(externalHandle, GwlStyle, _originalStyle, out _);
-            LastError = extendedStyleError;
-            ResetOriginalState();
-            return false;
-        }
-
         NativeMethods.SetParent(externalHandle, _hostHandle);
         if (NativeMethods.GetParent(externalHandle) != _hostHandle)
         {
@@ -317,10 +329,15 @@ public sealed class ExternalWindowHost : HwndHost
         }
 
         _externalHandle = externalHandle;
-        if (!ResizeExternalWindow(forceFrameChange: true))
+        if (!ResizeExternalWindow(forceFrameChange: true, notifyContent: true))
         {
             DetachExternalWindow();
             return false;
+        }
+
+        if (RequiresElectronRenderKick)
+        {
+            PulseElectronRenderSurface();
         }
 
         ScheduleDeferredResizes();
@@ -392,7 +409,7 @@ public sealed class ExternalWindowHost : HwndHost
         return true;
     }
 
-    private bool ResizeExternalWindow(bool forceFrameChange = false)
+    private bool ResizeExternalWindow(bool forceFrameChange = false, bool notifyContent = false)
     {
         if (_externalHandle == IntPtr.Zero || !NativeMethods.IsWindow(_externalHandle))
         {
@@ -433,6 +450,11 @@ public sealed class ExternalWindowHost : HwndHost
 
         if (!forceFrameChange && IsExternalWindowAtBounds(targetX, targetY, targetWidth, targetHeight))
         {
+            if (notifyContent)
+            {
+                RefreshEmbeddedContent(width, height);
+            }
+
             return true;
         }
 
@@ -455,7 +477,86 @@ public sealed class ExternalWindowHost : HwndHost
             return false;
         }
 
+        if (notifyContent)
+        {
+            RefreshEmbeddedContent(width, height);
+        }
+
         return true;
+    }
+
+    private void RefreshEmbeddedContent(int width, int height)
+    {
+        if (!RequiresContentResizeKick)
+        {
+            return;
+        }
+
+        NativeMethods.EnumChildWindows(
+            _externalHandle,
+            (childHandle, _) =>
+            {
+                var classNameBuilder = new StringBuilder(128);
+                NativeMethods.GetClassName(childHandle, classNameBuilder, classNameBuilder.Capacity);
+                var className = classNameBuilder.ToString();
+                if (!className.Contains("DesktopChildSiteBridge", StringComparison.Ordinal)
+                    && !className.Contains("DesktopWindowContentBridge", StringComparison.Ordinal)
+                    && !className.Contains("WinUIDesktopWin32WindowClass", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (!NativeMethods.GetWindowRect(childHandle, out var childRect)
+                    || childRect.Right - childRect.Left != width
+                    || childRect.Bottom - childRect.Top != height)
+                {
+                    NativeMethods.SetWindowPos(
+                        childHandle,
+                        IntPtr.Zero,
+                        0,
+                        0,
+                        width,
+                        height,
+                        SwpNoZOrder | SwpNoActivate | SwpShowWindow);
+                }
+
+                return true;
+            },
+            IntPtr.Zero);
+
+        var sizeParameter = new IntPtr((height << 16) | (width & 0xFFFF));
+        NativeMethods.PostMessage(_externalHandle, WmSize, IntPtr.Zero, sizeParameter);
+        NativeMethods.RedrawWindow(
+            _externalHandle,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate | RdwErase | RdwAllChildren | RdwUpdateNow);
+    }
+
+    private void PulseElectronRenderSurface()
+    {
+        var (width, height) = GetTargetPhysicalSize();
+        var pulseWidth = Math.Max(1, width - 1);
+        var pulseHeight = Math.Max(1, height - 1);
+        const uint flags = SwpNoZOrder | SwpNoActivate | SwpShowWindow;
+
+        NativeMethods.SetWindowPos(
+            _externalHandle,
+            IntPtr.Zero,
+            0,
+            0,
+            pulseWidth,
+            pulseHeight,
+            flags);
+        NativeMethods.SetWindowPos(
+            _externalHandle,
+            IntPtr.Zero,
+            0,
+            0,
+            width,
+            height,
+            flags);
+        RefreshEmbeddedContent(width, height);
     }
 
     private bool IsExternalWindowAtBounds(int x, int y, int width, int height)
@@ -479,8 +580,10 @@ public sealed class ExternalWindowHost : HwndHost
 
     private void ScheduleDeferredResizes()
     {
-        _ = Dispatcher.BeginInvoke(() => ResizeExternalWindow(), DispatcherPriority.Loaded);
-        foreach (var delayMs in new[] { 100, 300, 650 })
+        _ = Dispatcher.BeginInvoke(
+            () => ResizeExternalWindow(notifyContent: true),
+            DispatcherPriority.Loaded);
+        foreach (var delayMs in new[] { 100, 300, 650, 1200, 2000 })
         {
             var timer = new DispatcherTimer(DispatcherPriority.Render)
             {
@@ -489,7 +592,7 @@ public sealed class ExternalWindowHost : HwndHost
             timer.Tick += (_, _) =>
             {
                 timer.Stop();
-                ResizeExternalWindow();
+                ResizeExternalWindow(notifyContent: true);
             };
             timer.Start();
         }
@@ -672,6 +775,31 @@ public sealed class ExternalWindowHost : HwndHost
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool ClientToScreen(IntPtr windowHandle, ref Point point);
+
+        internal delegate bool EnumChildProc(IntPtr windowHandle, IntPtr parameter);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool EnumChildWindows(IntPtr parentHandle, EnumChildProc callback, IntPtr parameter);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetClassName(IntPtr windowHandle, StringBuilder className, int maxCount);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool PostMessage(
+            IntPtr windowHandle,
+            uint message,
+            IntPtr wParam,
+            IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool RedrawWindow(
+            IntPtr windowHandle,
+            IntPtr updateRect,
+            IntPtr updateRegion,
+            uint flags);
 
         [DllImport("user32.dll")]
         internal static extern IntPtr GetParent(IntPtr windowHandle);

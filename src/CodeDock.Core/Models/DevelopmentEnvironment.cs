@@ -10,7 +10,8 @@ public enum DevelopmentEnvironment
     MicrosoftEdge,
     GoogleChrome,
     MicrosoftOutlook,
-    WhatsApp
+    WhatsApp,
+    Obsidian
 }
 
 public static class DevelopmentEnvironmentExtensions
@@ -28,6 +29,7 @@ public static class DevelopmentEnvironmentExtensions
         DevelopmentEnvironment.MicrosoftOutlook,
         DevelopmentEnvironment.WhatsApp,
         DevelopmentEnvironment.Spotify,
+        DevelopmentEnvironment.Obsidian,
         DevelopmentEnvironment.MicrosoftEdge,
         DevelopmentEnvironment.GoogleChrome
     ];
@@ -45,7 +47,8 @@ public static class DevelopmentEnvironmentExtensions
         DevelopmentEnvironment.MicrosoftTeams or
         DevelopmentEnvironment.MicrosoftOutlook or
         DevelopmentEnvironment.WhatsApp or
-        DevelopmentEnvironment.Spotify;
+        DevelopmentEnvironment.Spotify or
+        DevelopmentEnvironment.Obsidian;
 
     public static string GetDisplayName(this DevelopmentEnvironment environment) => environment switch
     {
@@ -56,6 +59,7 @@ public static class DevelopmentEnvironmentExtensions
         DevelopmentEnvironment.MicrosoftOutlook => "Microsoft Outlook",
         DevelopmentEnvironment.WhatsApp => "WhatsApp",
         DevelopmentEnvironment.Spotify => "Spotify",
+        DevelopmentEnvironment.Obsidian => "Obsidian",
         DevelopmentEnvironment.MicrosoftEdge => "Microsoft Edge",
         DevelopmentEnvironment.GoogleChrome => "Google Chrome",
         _ => environment.ToString()

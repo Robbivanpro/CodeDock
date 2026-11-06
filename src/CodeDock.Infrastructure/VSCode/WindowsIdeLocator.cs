@@ -21,6 +21,7 @@ public sealed class WindowsIdeLocator : IIdeLocator
             DevelopmentEnvironment.MicrosoftOutlook => LocateMicrosoftOutlook(),
             DevelopmentEnvironment.WhatsApp => LocateWhatsApp(),
             DevelopmentEnvironment.Spotify => LocateSpotify(),
+            DevelopmentEnvironment.Obsidian => LocateObsidian(),
             DevelopmentEnvironment.MicrosoftEdge => LocateMicrosoftEdge(),
             DevelopmentEnvironment.GoogleChrome => LocateGoogleChrome(),
             _ => null
@@ -123,6 +124,18 @@ public sealed class WindowsIdeLocator : IIdeLocator
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "Spotify.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Spotify", "Spotify.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Spotify", "Spotify.exe")
+            ]);
+
+    private static IdeInstallation? LocateObsidian() =>
+        LocateFromCandidates(
+            DevelopmentEnvironment.Obsidian,
+            "Obsidian",
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "obsidian", "Obsidian.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Obsidian", "Obsidian.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Obsidian", "Obsidian.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Obsidian", "Obsidian.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Obsidian", "Obsidian.exe")
             ]);
 
     private static IdeInstallation? LocateMicrosoftEdge() =>

@@ -166,6 +166,18 @@ public sealed class ProjectRegistryTests
         Assert.Equal("https://web.whatsapp.com", customChrome.Value.WorkspaceFilePath);
     }
 
+    [Fact]
+    public async Task AddAppWorkspaceAsync_AllowsObsidianWorkspace()
+    {
+        var sut = new ProjectRegistry(new MemoryProjectStore(), new AcceptingPathValidator());
+
+        var result = await sut.AddAppWorkspaceAsync(DevelopmentEnvironment.Obsidian);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Obsidian", result.Value!.Name);
+        Assert.Equal(DevelopmentEnvironment.Obsidian, result.Value.PreferredEnvironment);
+    }
+
     private static ProjectWorkspace Project(string name, string path, int order) => new()
     {
         Id = Guid.NewGuid(),

@@ -191,6 +191,7 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
         DevelopmentEnvironment.WhatsApp => string.Equals(processName, "WhatsApp", StringComparison.OrdinalIgnoreCase)
             || string.Equals(processName, "WhatsApp.Root", StringComparison.OrdinalIgnoreCase),
         DevelopmentEnvironment.Spotify => string.Equals(processName, "Spotify", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.Obsidian => string.Equals(processName, "Obsidian", StringComparison.OrdinalIgnoreCase),
         DevelopmentEnvironment.MicrosoftEdge => string.Equals(processName, "msedge", StringComparison.OrdinalIgnoreCase),
         DevelopmentEnvironment.GoogleChrome => string.Equals(processName, "chrome", StringComparison.OrdinalIgnoreCase),
         _ => false

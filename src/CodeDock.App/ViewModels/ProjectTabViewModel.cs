@@ -30,6 +30,17 @@ public sealed partial class ProjectTabViewModel : ObservableObject
 
     public bool IsBrowserWorkspace => PreferredEnvironment.IsBrowserEnvironment();
 
+    public bool RequiresEmbeddedResizeKick => PreferredEnvironment is
+        DevelopmentEnvironment.VisualStudioCode or
+        DevelopmentEnvironment.Antigravity or
+        DevelopmentEnvironment.WhatsApp or
+        DevelopmentEnvironment.Obsidian;
+
+    public bool RequiresElectronRenderKick => PreferredEnvironment is
+        DevelopmentEnvironment.VisualStudioCode or
+        DevelopmentEnvironment.Antigravity or
+        DevelopmentEnvironment.Obsidian;
+
     public string EnvironmentDisplayName => PreferredEnvironment.GetDisplayName();
 
     [ObservableProperty]
@@ -43,6 +54,8 @@ public sealed partial class ProjectTabViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsCodeWorkspace))]
     [NotifyPropertyChangedFor(nameof(IsAppOrBrowserWorkspace))]
     [NotifyPropertyChangedFor(nameof(IsBrowserWorkspace))]
+    [NotifyPropertyChangedFor(nameof(RequiresEmbeddedResizeKick))]
+    [NotifyPropertyChangedFor(nameof(RequiresElectronRenderKick))]
     [NotifyPropertyChangedFor(nameof(EnvironmentDisplayName))]
     [NotifyPropertyChangedFor(nameof(IsFolderAvailable))]
     private DevelopmentEnvironment _preferredEnvironment;

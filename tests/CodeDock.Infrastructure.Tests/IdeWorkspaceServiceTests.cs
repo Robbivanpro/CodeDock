@@ -72,7 +72,27 @@ public sealed class IdeWorkspaceServiceTests
         var windows = new FakeDesktopWindowService();
         var launcher = new FakeIdeLauncher(project =>
         {
-            windows.AddWindow(151, 1501);
+            windows.AddWindow(151, 1501, DevelopmentEnvironment.VisualStudio2022);
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(new IdeLaunchReceipt(9999, 99990)));
+        });
+        var service = CreateService(windows, launcher);
+        var project = CreateProject();
+        project.PreferredEnvironment = DevelopmentEnvironment.VisualStudio2022;
+
+        var result = await service.OpenOrActivateAsync(project);
+
+        Assert.Equal(IdeOperationStatus.Ambiguous, result.Status);
+        Assert.Null(service.GetAssociatedWindow(project.Id));
+        Assert.Single(result.Candidates!);
+    }
+
+    [Fact]
+    public async Task OpenOrActivateAsync_AssociatesNewVisualStudioCodeWindowWhenBrokerProcessDiffers()
+    {
+        var windows = new FakeDesktopWindowService();
+        var launcher = new FakeIdeLauncher(_ =>
+        {
+            windows.AddWindow(152, 1502, DevelopmentEnvironment.VisualStudioCode);
             return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(new IdeLaunchReceipt(9999, 99990)));
         });
         var service = CreateService(windows, launcher);
@@ -80,9 +100,9 @@ public sealed class IdeWorkspaceServiceTests
 
         var result = await service.OpenOrActivateAsync(project);
 
-        Assert.Equal(IdeOperationStatus.Ambiguous, result.Status);
-        Assert.Null(service.GetAssociatedWindow(project.Id));
-        Assert.Single(result.Candidates!);
+        Assert.Equal(IdeOperationStatus.LaunchedAndAssociated, result.Status);
+        Assert.Equal(152, service.GetAssociatedWindow(project.Id));
+        Assert.True(windows.ResponsivenessChecks >= 24);
     }
 
     [Fact]
@@ -313,6 +333,28 @@ public sealed class IdeWorkspaceServiceTests
         Assert.Equal(IdeOperationStatus.Associated, result.Status);
         Assert.False(launchCalled);
         Assert.Equal(existingSpotify.Handle, service.GetAssociatedWindow(project.Id));
+    }
+
+    [Fact]
+    public async Task OpenOrActivateAsync_AssociatesExistingObsidianWindowWithoutRelaunching()
+    {
+        var windows = new FakeDesktopWindowService();
+        var existingObsidian = windows.AddWindow(1102, 2102, DevelopmentEnvironment.Obsidian);
+        var launchCalled = false;
+        var launcher = new FakeIdeLauncher(_ =>
+        {
+            launchCalled = true;
+            return Task.FromResult(OperationResult<IdeLaunchReceipt>.Success(new IdeLaunchReceipt(0, 0)));
+        });
+        var service = CreateService(windows, launcher);
+        var project = CreateProject();
+        project.PreferredEnvironment = DevelopmentEnvironment.Obsidian;
+
+        var result = await service.OpenOrActivateAsync(project);
+
+        Assert.Equal(IdeOperationStatus.Associated, result.Status);
+        Assert.False(launchCalled);
+        Assert.Equal(existingObsidian.Handle, service.GetAssociatedWindow(project.Id));
     }
 
     [Fact]

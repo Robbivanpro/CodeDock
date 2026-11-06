@@ -302,6 +302,12 @@ public partial class MainWindow : Window
         await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.Spotify);
     }
 
+    private async void OnAddObsidianClick(object sender, RoutedEventArgs e)
+    {
+        AppsDropdownPopup.IsOpen = false;
+        await ViewModel.AddAppWorkspaceAsync(DevelopmentEnvironment.Obsidian);
+    }
+
     private async void OnAddEdgeClick(object sender, RoutedEventArgs e)
     {
         AppsDropdownPopup.IsOpen = false;

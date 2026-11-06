@@ -105,7 +105,7 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
                 var after = await WaitForWindowChangeAsync(environment, before, cancellationToken).ConfigureAwait(false);
                 var association = _associationResolver.Resolve(before, after);
                 string? claimError = null;
-                if (environment.IsCodeEnvironment()
+                if (environment == DevelopmentEnvironment.VisualStudio2022
                     && association.Status == IdeOperationStatus.LaunchedAndAssociated
                     && association.Candidates is [var detected]
                     && (launchResult.Value is null || !launchResult.Value.Matches(detected)))
@@ -432,10 +432,14 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
             var newWindows = current.Where(window => !existingHandles.Contains(window.Handle)).ToList();
             if (newWindows.Count > 0)
             {
-                if (environment != DevelopmentEnvironment.VisualStudio2022)
+                var requiredStableChecks = environment switch
                 {
-                    // Chromium and desktop apps can continue initializing after their top-level
-                    // HWND has already been moved into the CodeDock host.
+                    DevelopmentEnvironment.VisualStudio2022 => 30,
+                    DevelopmentEnvironment.VisualStudioCode or DevelopmentEnvironment.Antigravity => 24,
+                    _ => 1
+                };
+                if (requiredStableChecks == 1)
+                {
                     return current;
                 }
 
@@ -445,16 +449,13 @@ public sealed class IdeWorkspaceService : IIdeWorkspaceService
                 stableChecks = sameWindows && allResponsive ? stableChecks + 1 : allResponsive ? 1 : 0;
                 previousNewHandles = newHandles;
 
-                // Visual Studio starts answering window messages before its
-                // WPF shell has finished building the top-level composition.
-                // The first reparent can therefore produce a blank surface,
-                // while detaching and embedding the same HWND a few seconds
-                // later works. Keep the initial HWND top-level and responsive
-                // for about 4.5 seconds before the first association/embed.
-                if (stableChecks >= 30)
+                // VS and Electron start answering window messages before their
+                // composed client surface is ready to survive reparenting. Keep
+                // the HWND top-level until it has remained stable and responsive.
+                if (stableChecks >= requiredStableChecks)
                 {
                     _logger.LogInformation(
-                        "Visual Studio window became stable before association; HWNDs {WindowHandles}",
+                        "IDE window became stable before association; HWNDs {WindowHandles}",
                         string.Join(", ", newHandles));
                     return current;
                 }
