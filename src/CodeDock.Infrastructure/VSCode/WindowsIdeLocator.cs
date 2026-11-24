@@ -134,7 +134,7 @@ public sealed class WindowsIdeLocator : IIdeLocator
 
     private static string? TryResolveShortcutTarget(string shortcutPath)
     {
-        if (!File.Exists(shortcutPath))
+        if (!OperatingSystem.IsWindows() || !File.Exists(shortcutPath))
         {
             return null;
         }
