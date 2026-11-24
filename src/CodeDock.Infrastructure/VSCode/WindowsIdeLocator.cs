@@ -38,16 +38,174 @@ public sealed class WindowsIdeLocator : IIdeLocator
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft VS Code", "Code.exe")
             ]);
 
-    private static IdeInstallation? LocateAntigravity() =>
-        LocateFromCandidates(
-            DevelopmentEnvironment.Antigravity,
-            "Antigravity",
-            [
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "antigravity", "Antigravity.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Antigravity", "Antigravity.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Antigravity", "Antigravity.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Antigravity", "Antigravity.exe")
-            ]);
+    private static IdeInstallation? LocateAntigravity()
+    {
+        var explicitPath = Environment.GetEnvironmentVariable("ANTIGRAVITY_PATH");
+        if (!string.IsNullOrWhiteSpace(explicitPath) && File.Exists(explicitPath))
+        {
+            return new IdeInstallation(
+                DevelopmentEnvironment.Antigravity,
+                "Antigravity",
+                explicitPath,
+                TryGetProductVersion(explicitPath));
+        }
+
+        var candidateFiles = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Antigravity-x64.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Antigravity.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "antigravity", "Antigravity.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "antigravity", "Antigravity-x64.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Antigravity", "Antigravity.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "antigravity", "Antigravity.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "antigravity-updater", "pending", "Antigravity-x64.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Antigravity", "Antigravity.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Antigravity", "Antigravity.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Antigravity", "Antigravity.exe")
+        };
+
+        var directCandidate = candidateFiles.FirstOrDefault(File.Exists);
+
+        if (directCandidate is not null)
+        {
+            return new IdeInstallation(
+                DevelopmentEnvironment.Antigravity,
+                "Antigravity",
+                directCandidate,
+                TryGetProductVersion(directCandidate));
+        }
+
+        var runningProcessPath = TryGetRunningProcessPath("Antigravity") ?? TryGetRunningProcessPath("Antigravity-x64");
+        if (runningProcessPath is not null && File.Exists(runningProcessPath))
+        {
+            return new IdeInstallation(
+                DevelopmentEnvironment.Antigravity,
+                "Antigravity",
+                runningProcessPath,
+                TryGetProductVersion(runningProcessPath));
+        }
+
+        var shortcutCandidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Windows", "Start Menu", "Programs", "Antigravity.lnk"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "Start Menu", "Programs", "Antigravity.lnk"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Antigravity.lnk"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "OneDrive", "Desktop", "Antigravity.lnk")
+        };
+
+        foreach (var shortcut in shortcutCandidates)
+        {
+            var target = TryResolveShortcutTarget(shortcut);
+            if (target is not null && File.Exists(target))
+            {
+                return new IdeInstallation(
+                    DevelopmentEnvironment.Antigravity,
+                    "Antigravity",
+                    target,
+                    TryGetProductVersion(target));
+            }
+        }
+
+        var fromPath = TryLocateFromPath("Antigravity-x64.exe") ?? TryLocateFromPath("Antigravity.exe");
+        if (fromPath is not null)
+        {
+            return new IdeInstallation(
+                DevelopmentEnvironment.Antigravity,
+                "Antigravity",
+                fromPath,
+                TryGetProductVersion(fromPath));
+        }
+
+        return null;
+    }
+
+    private static string? TryGetRunningProcessPath(string processName)
+    {
+        try
+        {
+            using var process = Process.GetProcessesByName(processName).FirstOrDefault();
+            return process?.MainModule?.FileName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? TryResolveShortcutTarget(string shortcutPath)
+    {
+        if (!File.Exists(shortcutPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType is null)
+            {
+                return null;
+            }
+
+            var shell = Activator.CreateInstance(shellType);
+            if (shell is null)
+            {
+                return null;
+            }
+
+            var shortcut = shellType.InvokeMember(
+                "CreateShortcut",
+                System.Reflection.BindingFlags.InvokeMethod,
+                null,
+                shell,
+                [shortcutPath]);
+
+            if (shortcut is null)
+            {
+                return null;
+            }
+
+            var targetPath = shortcut.GetType().InvokeMember(
+                "TargetPath",
+                System.Reflection.BindingFlags.GetProperty,
+                null,
+                shortcut,
+                null) as string;
+
+            return !string.IsNullOrWhiteSpace(targetPath) && File.Exists(targetPath) ? targetPath : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? TryLocateFromPath(string executableName)
+    {
+        try
+        {
+            var pathEnv = Environment.GetEnvironmentVariable("PATH");
+            if (string.IsNullOrWhiteSpace(pathEnv))
+            {
+                return null;
+            }
+
+            foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var candidate = Path.Combine(dir.Trim(), executableName);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore path inspection errors
+        }
+
+        return null;
+    }
 
     private static IdeInstallation? LocateMicrosoftTeams() =>
         LocateFromCandidates(

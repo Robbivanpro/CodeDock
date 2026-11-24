@@ -1,5 +1,12 @@
 # CodeDock agent instructions
 
+## Regole operative e uso degli strumenti
+
+- **Strumenti nativi per lettura e modifica**: Per leggere, cercare e modificare file usa sempre gli strumenti nativi dell'agente (`read_file`, `edit_file`, `write_file`). Non usare mai la console/terminale per leggere file (es. `Get-Content`, `cat`, `type`).
+- **Uso ristretto del terminale**: Riserva i comandi del terminale esclusivamente a build (`dotnet build`), test (`dotnet test`) e diagnostica essenziale. Non richiedere né eseguire comandi banali di sola lettura via terminale quando esiste il tool nativo.
+- **Precisione chirurgica**: Esegui modifiche minime, complete e strettamente pertinenti alla richiesta, senza refactoring non richiesti.
+- **Verifiche e completamento**: Verifica sempre il diff dopo ogni modifica ed esegui i test più mirati. Non dichiarare completato un task senza aver eseguito verifiche concrete.
+
 ## Project overview
 
 CodeDock is a Windows-only desktop workspace manager built with .NET 10 and WPF. It launches, associates, embeds, activates, and closes Visual Studio Code and Visual Studio 2022 windows while persisting project and session state.

@@ -183,7 +183,8 @@ public sealed class Win32DesktopWindowService : IDesktopWindowService
     {
         DevelopmentEnvironment.VisualStudioCode => string.Equals(processName, "Code", StringComparison.OrdinalIgnoreCase),
         DevelopmentEnvironment.VisualStudio2022 => string.Equals(processName, "devenv", StringComparison.OrdinalIgnoreCase),
-        DevelopmentEnvironment.Antigravity => string.Equals(processName, "Antigravity", StringComparison.OrdinalIgnoreCase),
+        DevelopmentEnvironment.Antigravity => string.Equals(processName, "Antigravity", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processName, "Antigravity-x64", StringComparison.OrdinalIgnoreCase),
         DevelopmentEnvironment.MicrosoftTeams => string.Equals(processName, "ms-teams", StringComparison.OrdinalIgnoreCase)
             || string.Equals(processName, "Teams", StringComparison.OrdinalIgnoreCase),
         DevelopmentEnvironment.MicrosoftOutlook => string.Equals(processName, "olk", StringComparison.OrdinalIgnoreCase)

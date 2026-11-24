@@ -79,132 +79,253 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <ListBox x:Name="ProjectTabs"
-                         ItemsSource="{Binding CodeProjects}"
-                         SelectedItem="{Binding SelectedCodeProject, Mode=TwoWay}"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         ScrollViewer.HorizontalScrollBarVisibility="Hidden"
-                         ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                         AllowDrop="True">
-                    <ListBox.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.Resources>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="BorderThickness" Value="0" />
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,0,7,0" />
-                            <Setter Property="VerticalContentAlignment" Value="Center" />
-                            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="OnTabPreviewMouseLeftButtonDown" />
-                            <EventSetter Event="PreviewMouseMove" Handler="OnTabPreviewMouseMove" />
-                            <EventSetter Event="Drop" Handler="OnTabDrop" />
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="TabChrome"
-                                                Padding="10,5"
-                                                Background="Transparent"
-                                                BorderBrush="Transparent"
-                                                BorderThickness="1"
-                                                CornerRadius="8"
-                                                SnapsToDevicePixels="True">
-                                            <ContentPresenter />
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource SurfaceHoverBrush}" />
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
-                                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{StaticResource StrokeBrightBrush}" />
-                                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.Resources>
+                <Grid Grid.Column="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="{x:Type vm:ProjectTabViewModel}">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <StackPanel.ContextMenu>
-                                    <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                        <MenuItem Header="Close tab only" Click="OnCloseTabOnlyClick" />
-                                    </ContextMenu>
-                                </StackPanel.ContextMenu>
-                                <Border Width="23" Height="23" CornerRadius="6">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="Background" Value="#143D59" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
-                                                    <Setter Property="Background" Value="#3D2761" />
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Antigravity}">
-                                                    <Setter Property="Background" Value="#3B2A14" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <TextBlock FontSize="9" FontFamily="Cascadia Code, Consolas" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Text" Value="&lt;&gt;" />
-                                                <Setter Property="Foreground" Value="{StaticResource CyanBrush}" />
+                    <Button x:Name="ScrollTabsLeftButton"
+                            Grid.Column="0"
+                            Style="{StaticResource GhostButton}"
+                            Content="‹"
+                            FontSize="18"
+                            FontWeight="Bold"
+                            Padding="5,0"
+                            Margin="0,0,3,0"
+                            VerticalAlignment="Center"
+                            Height="32"
+                            ToolTip="Scroll tabs left"
+                            Visibility="Collapsed"
+                            Click="OnScrollTabsLeftClick" />
+
+                    <ListBox x:Name="ProjectTabs"
+                             Grid.Column="1"
+                             ItemsSource="{Binding CodeProjects}"
+                             SelectedItem="{Binding SelectedCodeProject, Mode=TwoWay}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                             ScrollViewer.CanContentScroll="False"
+                             PreviewMouseWheel="OnProjectTabsPreviewMouseWheel"
+                             SelectionChanged="OnProjectTabsSelectionChanged"
+                             Loaded="OnProjectTabsLoaded"
+                             SizeChanged="OnProjectTabsSizeChanged"
+                             AllowDrop="True">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.Resources>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,7,0" />
+                                <Setter Property="VerticalContentAlignment" Value="Center" />
+                                <EventSetter Event="PreviewMouseLeftButtonDown" Handler="OnTabPreviewMouseLeftButtonDown" />
+                                <EventSetter Event="PreviewMouseMove" Handler="OnTabPreviewMouseMove" />
+                                <EventSetter Event="Drop" Handler="OnTabDrop" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="TabChrome"
+                                                    Padding="10,5"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    SnapsToDevicePixels="True">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource SurfaceHoverBrush}" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+                                                    <Setter TargetName="TabChrome" Property="BorderBrush" Value="{StaticResource StrokeBrightBrush}" />
+                                                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.Resources>
+
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ProjectTabViewModel}">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                            <MenuItem Header="Close tab only" Click="OnCloseTabOnlyClick" />
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
+                                    <Border Width="23" Height="23" CornerRadius="6">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#143D59" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
-                                                        <Setter Property="Text" Value="VS" />
-                                                        <Setter Property="Foreground" Value="#C4A7FF" />
+                                                        <Setter Property="Background" Value="#3D2761" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Antigravity}">
-                                                        <Setter Property="Text" Value="AG" />
-                                                        <Setter Property="Foreground" Value="#FFB84D" />
+                                                        <Setter Property="Background" Value="#3B2A14" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </Border>
-                                <TextBlock Text="{Binding Name}"
-                                           MinWidth="70"
-                                           MaxWidth="175"
-                                           Margin="8,0,2,0"
-                                           Padding="1"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center" />
-                                <Ellipse Width="6" Height="6" Margin="7,0,3,0">
-                                    <Ellipse.Style>
-                                        <Style TargetType="Ellipse">
-                                            <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsFolderAvailable}" Value="False">
-                                                    <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Ellipse.Style>
-                                </Ellipse>
-                                <Button Style="{StaticResource GhostButton}"
-                                        Content="×"
-                                        Margin="4,0,0,0"
-                                        Padding="5,1"
-                                        Foreground="{StaticResource TextMutedBrush}"
-                                        FontSize="15"
-                                        ToolTip="Close IDE and tab"
-                                        Click="OnRemoveProjectClick" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                                        </Border.Style>
+                                        <TextBlock FontSize="9" FontFamily="Cascadia Code, Consolas" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="&lt;&gt;" />
+                                                    <Setter Property="Foreground" Value="{StaticResource CyanBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.VisualStudio2022}">
+                                                            <Setter Property="Text" Value="VS" />
+                                                            <Setter Property="Foreground" Value="#C4A7FF" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding PreferredEnvironment}" Value="{x:Static models:DevelopmentEnvironment.Antigravity}">
+                                                            <Setter Property="Text" Value="AG" />
+                                                            <Setter Property="Foreground" Value="#FFB84D" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                    <TextBlock Text="{Binding Name}"
+                                               MinWidth="70"
+                                               MaxWidth="175"
+                                               Margin="8,0,2,0"
+                                               Padding="1"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                    <Ellipse Width="6" Height="6" Margin="7,0,3,0">
+                                        <Ellipse.Style>
+                                            <Style TargetType="Ellipse">
+                                                <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsFolderAvailable}" Value="False">
+                                                        <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
+                                    </Ellipse>
+                                    <Button Style="{StaticResource GhostButton}"
+                                            Content="×"
+                                            Margin="4,0,0,0"
+                                            Padding="5,1"
+                                            Foreground="{StaticResource TextMutedBrush}"
+                                            FontSize="15"
+                                            ToolTip="Close IDE and tab"
+                                            Click="OnRemoveProjectClick" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Button x:Name="ScrollTabsRightButton"
+                            Grid.Column="2"
+                            Style="{StaticResource GhostButton}"
+                            Content="›"
+                            FontSize="18"
+                            FontWeight="Bold"
+                            Padding="5,0"
+                            Margin="3,0,0,0"
+                            VerticalAlignment="Center"
+                            Height="32"
+                            ToolTip="Scroll tabs right"
+                            Visibility="Collapsed"
+                            Click="OnScrollTabsRightClick" />
+
+                    <Grid Grid.Column="3" VerticalAlignment="Center">
+                        <Button x:Name="TabsListDropdownButton"
+                                Style="{StaticResource GhostButton}"
+                                Content="▾"
+                                FontSize="11"
+                                FontWeight="Bold"
+                                Padding="6,7"
+                                Margin="4,0,8,0"
+                                VerticalAlignment="Center"
+                                ToolTip="All open workspaces"
+                                Click="OnTabsListDropdownButtonClick" />
+
+                        <Popup x:Name="TabsListDropdownPopup"
+                               PlacementTarget="{Binding ElementName=TabsListDropdownButton}"
+                               Placement="Bottom"
+                               VerticalOffset="6"
+                               StaysOpen="False"
+                               AllowsTransparency="True">
+                            <Border Width="280"
+                                    MaxHeight="360"
+                                    Padding="10"
+                                    Background="#131824"
+                                    BorderBrush="{StaticResource StrokeBrightBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="OPEN CODE WORKSPACES"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontSize="9"
+                                               FontWeight="Bold"
+                                               Margin="4,0,4,8" />
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl ItemsSource="{Binding CodeProjects}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:ProjectTabViewModel}">
+                                                    <Border Margin="0,0,0,3"
+                                                            Padding="6,4"
+                                                            CornerRadius="6"
+                                                            BorderThickness="1">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="Transparent" />
+                                                                <Setter Property="BorderBrush" Value="Transparent" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                        <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+                                                                        <Setter Property="BorderBrush" Value="{StaticResource StrokeBrightBrush}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                        <Button Style="{StaticResource GhostButton}"
+                                                                HorizontalContentAlignment="Left"
+                                                                Padding="3,2"
+                                                                Click="OnQuickSelectTabClick">
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Name}"
+                                                                           MaxWidth="210"
+                                                                           FontSize="12"
+                                                                           FontWeight="SemiBold"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Button>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </Grid>
 
                 <Grid Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
                     <Button x:Name="AppsDropdownButton"

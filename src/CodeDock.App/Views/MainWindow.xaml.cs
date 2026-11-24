@@ -33,9 +33,187 @@ public partial class MainWindow : Window
         };
         _notificationTimer.Tick += OnNotificationTimerTick;
         _notificationTimer.Start();
+
+        Activated += OnWindowActivated;
+        Deactivated += OnWindowDeactivated;
+        DataContextChanged += OnDataContextChanged;
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext;
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is MainWindowViewModel oldVm)
+        {
+            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        if (e.NewValue is MainWindowViewModel newVm)
+        {
+            newVm.PropertyChanged += OnViewModelPropertyChanged;
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.SelectedProject))
+        {
+            ExternalWindowHost.DismissExternalBrowserHoverCards();
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (ViewModel.SelectedProject is { } selected)
+                {
+                    var host = FindProjectHost(selected);
+                    host?.NotifyHostWindowActivated();
+                }
+            }, DispatcherPriority.Input);
+        }
+    }
+
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        ExternalWindowHost.DismissExternalBrowserHoverCards();
+        if (DataContext is MainWindowViewModel { SelectedProject: { } selected })
+        {
+            var host = FindProjectHost(selected);
+            host?.NotifyHostWindowActivated();
+        }
+    }
+
+    private void OnWindowDeactivated(object? sender, EventArgs e)
+    {
+        if (DataContext is MainWindowViewModel { SelectedProject: { } selected })
+        {
+            var host = FindProjectHost(selected);
+            host?.NotifyHostWindowDeactivated();
+        }
+    }
+
+    private ScrollViewer? _tabsScrollViewer;
+
+    private ScrollViewer? GetTabsScrollViewer()
+    {
+        if (_tabsScrollViewer is null && ProjectTabs is not null)
+        {
+            _tabsScrollViewer = FindVisualChildren<ScrollViewer>(ProjectTabs).FirstOrDefault();
+            if (_tabsScrollViewer is not null)
+            {
+                _tabsScrollViewer.ScrollChanged += OnTabsScrollViewerScrollChanged;
+            }
+        }
+
+        return _tabsScrollViewer;
+    }
+
+    private void OnTabsScrollViewerScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer sv)
+        {
+            UpdateTabScrollButtons(sv);
+        }
+    }
+
+    private void UpdateTabScrollButtons(ScrollViewer? sv)
+    {
+        if (sv is null)
+        {
+            ScrollTabsLeftButton.Visibility = Visibility.Collapsed;
+            ScrollTabsRightButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var canScroll = sv.ScrollableWidth > 1;
+        ScrollTabsLeftButton.Visibility = canScroll ? Visibility.Visible : Visibility.Collapsed;
+        ScrollTabsRightButton.Visibility = canScroll ? Visibility.Visible : Visibility.Collapsed;
+
+        if (canScroll)
+        {
+            var canLeft = sv.HorizontalOffset > 1;
+            var canRight = sv.HorizontalOffset < (sv.ScrollableWidth - 1);
+            ScrollTabsLeftButton.IsEnabled = canLeft;
+            ScrollTabsLeftButton.Opacity = canLeft ? 1.0 : 0.35;
+            ScrollTabsRightButton.IsEnabled = canRight;
+            ScrollTabsRightButton.Opacity = canRight ? 1.0 : 0.35;
+        }
+    }
+
+    private void OnProjectTabsLoaded(object sender, RoutedEventArgs e) =>
+        UpdateTabScrollButtons(GetTabsScrollViewer());
+
+    private void OnProjectTabsSizeChanged(object sender, SizeChangedEventArgs e) =>
+        UpdateTabScrollButtons(GetTabsScrollViewer());
+
+    private void OnScrollTabsLeftClick(object sender, RoutedEventArgs e)
+    {
+        var sv = GetTabsScrollViewer();
+        if (sv is null)
+        {
+            return;
+        }
+
+        sv.ScrollToHorizontalOffset(Math.Max(0, sv.HorizontalOffset - 160));
+        UpdateTabScrollButtons(sv);
+    }
+
+    private void OnScrollTabsRightClick(object sender, RoutedEventArgs e)
+    {
+        var sv = GetTabsScrollViewer();
+        if (sv is null)
+        {
+            return;
+        }
+
+        sv.ScrollToHorizontalOffset(Math.Min(sv.ScrollableWidth, sv.HorizontalOffset + 160));
+        UpdateTabScrollButtons(sv);
+    }
+
+    private void OnTabsListDropdownButtonClick(object sender, RoutedEventArgs e) =>
+        TabsListDropdownPopup.IsOpen = !TabsListDropdownPopup.IsOpen;
+
+    private void OnQuickSelectTabClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ProjectTabViewModel project })
+        {
+            ViewModel.SelectedCodeProject = project;
+            TabsListDropdownPopup.IsOpen = false;
+        }
+    }
+
+    private void OnProjectTabsPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        var scrollViewer = GetTabsScrollViewer();
+        if (scrollViewer is null)
+        {
+            return;
+        }
+
+        if (scrollViewer.ScrollableWidth <= 1)
+        {
+            return;
+        }
+
+        var step = e.Delta < 0 ? 96 : -96;
+        var targetOffset = Math.Clamp(scrollViewer.HorizontalOffset + step, 0, scrollViewer.ScrollableWidth);
+        scrollViewer.ScrollToHorizontalOffset(targetOffset);
+        UpdateTabScrollButtons(scrollViewer);
+        e.Handled = true;
+    }
+
+    private void OnProjectTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ProjectTabs.SelectedItem is not null)
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (ProjectTabs.ItemContainerGenerator.ContainerFromItem(ProjectTabs.SelectedItem) is FrameworkElement container)
+                {
+                    container.BringIntoView();
+                }
+
+                UpdateTabScrollButtons(GetTabsScrollViewer());
+            }, DispatcherPriority.Loaded);
+        }
+    }
 
     private void OnNotificationTimerTick(object? sender, EventArgs e)
     {

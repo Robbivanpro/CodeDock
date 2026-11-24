@@ -12,6 +12,8 @@ public sealed class ExternalWindowHost : HwndHost
 {
     private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
+    private const int SwHide = 0;
+    private const int SwShow = 5;
     private const int SwRestore = 9;
     private const long WsChild = 0x40000000L;
     private const long WsVisible = 0x10000000L;
@@ -24,8 +26,15 @@ public sealed class ExternalWindowHost : HwndHost
     private const long WsMinimizeBox = 0x00020000L;
     private const long WsMaximizeBox = 0x00010000L;
     private const long WsTabStop = 0x00010000L;
+    private const int WmActivate = 0x0006;
+    private const int WmSetFocus = 0x0007;
+    private const int WmKillFocus = 0x0008;
+    private const int WmCancelMode = 0x001F;
     private const int WmParentNotify = 0x0210;
+    private const uint WmNcActivate = 0x0086;
     private const uint WmSize = 0x0005;
+    private const int WaInactive = 0;
+    private const int WaActive = 1;
     private const int WmLButtonDown = 0x0201;
     private const int WmRButtonDown = 0x0204;
     private const int WmMButtonDown = 0x0207;
@@ -74,6 +83,7 @@ public sealed class ExternalWindowHost : HwndHost
         Focusable = true;
         SizeChanged += OnSizeChanged;
         GotKeyboardFocus += OnGotKeyboardFocus;
+        IsVisibleChanged += OnIsVisibleChanged;
     }
 
     public long WindowHandle
@@ -619,6 +629,151 @@ public sealed class ExternalWindowHost : HwndHost
         return (width, height);
     }
 
+    public void NotifyHostWindowActivated()
+    {
+        if (IsVisible && _externalHandle != IntPtr.Zero && NativeMethods.IsWindow(_externalHandle))
+        {
+            FocusExternalWindow();
+        }
+    }
+
+    public void NotifyHostWindowDeactivated()
+    {
+        if (_externalHandle != IntPtr.Zero && NativeMethods.IsWindow(_externalHandle))
+        {
+            DismissOrphanProcessPopups();
+            NativeMethods.SendMessage(_externalHandle, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
+            NativeMethods.SendMessage(_externalHandle, WmActivate, (IntPtr)WaInactive, IntPtr.Zero);
+            NativeMethods.SendMessage(_externalHandle, WmNcActivate, IntPtr.Zero, IntPtr.Zero);
+        }
+    }
+
+    public void DismissOrphanProcessPopups()
+    {
+        if (_externalHandle == IntPtr.Zero || !NativeMethods.IsWindow(_externalHandle))
+        {
+            return;
+        }
+
+        NativeMethods.GetWindowThreadProcessId(_externalHandle, out var hostProcessId);
+        if (hostProcessId == 0)
+        {
+            return;
+        }
+
+        NativeMethods.EnumWindows(
+            (topHandle, _) =>
+            {
+                if (topHandle == _externalHandle || topHandle == _hostHandle)
+                {
+                    return true;
+                }
+
+                NativeMethods.GetWindowThreadProcessId(topHandle, out var windowProcessId);
+                if (windowProcessId != hostProcessId)
+                {
+                    return true;
+                }
+
+                var style = NativeMethods.GetWindowLongPtr(topHandle, GwlStyle).ToInt64();
+                if ((style & WsPopup) != 0 && NativeMethods.IsWindowVisible(topHandle))
+                {
+                    var classNameBuilder = new StringBuilder(128);
+                    NativeMethods.GetClassName(topHandle, classNameBuilder, classNameBuilder.Capacity);
+                    var className = classNameBuilder.ToString();
+                    if (className.Contains("Chrome_WidgetWin", StringComparison.Ordinal)
+                        || className.Contains("Intermediate D3D Window", StringComparison.Ordinal)
+                        || (style & WsCaption) == 0)
+                    {
+                        NativeMethods.PostMessage(topHandle, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
+                        NativeMethods.ShowWindow(topHandle, SwHide);
+                    }
+                }
+
+                return true;
+            },
+            IntPtr.Zero);
+    }
+
+    public static void DismissExternalBrowserHoverCards()
+    {
+        NativeMethods.EnumWindows((windowHandle, _) =>
+        {
+            if (!NativeMethods.IsWindowVisible(windowHandle))
+            {
+                return true;
+            }
+
+            var style = NativeMethods.GetWindowLongPtr(windowHandle, GwlStyle).ToInt64();
+            if ((style & WsPopup) != 0 && (style & WsCaption) == 0)
+            {
+                var classNameBuilder = new StringBuilder(128);
+                NativeMethods.GetClassName(windowHandle, classNameBuilder, classNameBuilder.Capacity);
+                var className = classNameBuilder.ToString();
+                if (className.Contains("Chrome_WidgetWin", StringComparison.Ordinal)
+                    || className.Contains("Intermediate D3D Window", StringComparison.Ordinal))
+                {
+                    NativeMethods.GetWindowThreadProcessId(windowHandle, out var processId);
+                    try
+                    {
+                        using var process = System.Diagnostics.Process.GetProcessById(unchecked((int)processId));
+                        if (string.Equals(process.ProcessName, "msedge", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(process.ProcessName, "chrome", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(process.ProcessName, "ms-teams", StringComparison.OrdinalIgnoreCase))
+                        {
+                            NativeMethods.PostMessage(windowHandle, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
+                            NativeMethods.ShowWindow(windowHandle, SwHide);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore vanished or inaccessible processes
+                    }
+                }
+            }
+
+            return true;
+        }, IntPtr.Zero);
+    }
+
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if ((bool)e.NewValue)
+        {
+            if (_externalHandle != IntPtr.Zero && NativeMethods.IsWindow(_externalHandle))
+            {
+                NativeMethods.ShowWindow(_externalHandle, SwShow);
+                ResizeExternalWindow(forceFrameChange: true, notifyContent: true);
+                if (RequiresElectronRenderKick)
+                {
+                    PulseElectronRenderSurface();
+                }
+
+                _ = Dispatcher.BeginInvoke(
+                    () =>
+                    {
+                        if (IsVisible && _externalHandle != IntPtr.Zero && NativeMethods.IsWindow(_externalHandle))
+                        {
+                            FocusExternalWindow();
+                        }
+                    },
+                    DispatcherPriority.Input);
+            }
+        }
+        else
+        {
+            if (_externalHandle != IntPtr.Zero && NativeMethods.IsWindow(_externalHandle))
+            {
+                DismissOrphanProcessPopups();
+                NativeMethods.SendMessage(_externalHandle, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
+                NativeMethods.SendMessage(_externalHandle, WmActivate, (IntPtr)WaInactive, IntPtr.Zero);
+                NativeMethods.SendMessage(_externalHandle, WmNcActivate, IntPtr.Zero, IntPtr.Zero);
+                NativeMethods.SendMessage(_externalHandle, WmKillFocus, IntPtr.Zero, IntPtr.Zero);
+                NativeMethods.ShowWindow(_externalHandle, SwHide);
+            }
+        }
+    }
+
     private bool FocusExternalWindow()
     {
         if (_externalHandle == IntPtr.Zero || !NativeMethods.IsWindow(_externalHandle))
@@ -641,7 +796,27 @@ public sealed class ExternalWindowHost : HwndHost
                 Focus();
             }
 
+            NativeMethods.SendMessage(_externalHandle, WmActivate, (IntPtr)WaActive, IntPtr.Zero);
+            NativeMethods.SendMessage(_externalHandle, WmNcActivate, (IntPtr)1, IntPtr.Zero);
             NativeMethods.SetFocus(_externalHandle);
+
+            NativeMethods.EnumChildWindows(
+                _externalHandle,
+                (childHandle, _) =>
+                {
+                    var classNameBuilder = new StringBuilder(128);
+                    NativeMethods.GetClassName(childHandle, classNameBuilder, classNameBuilder.Capacity);
+                    var className = classNameBuilder.ToString();
+                    if (className.Contains("RenderWidgetHost", StringComparison.Ordinal)
+                        || className.Contains("Intermediate D3D Window", StringComparison.Ordinal))
+                    {
+                        NativeMethods.PostMessage(childHandle, WmSetFocus, IntPtr.Zero, IntPtr.Zero);
+                    }
+
+                    return true;
+                },
+                IntPtr.Zero);
+
             return NativeMethods.GetFocus() == _externalHandle;
         }
         finally
@@ -777,6 +952,23 @@ public sealed class ExternalWindowHost : HwndHost
         internal static extern bool ClientToScreen(IntPtr windowHandle, ref Point point);
 
         internal delegate bool EnumChildProc(IntPtr windowHandle, IntPtr parameter);
+
+        internal delegate bool EnumWindowsProc(IntPtr windowHandle, IntPtr parameter);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsWindowVisible(IntPtr windowHandle);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern IntPtr SendMessage(
+            IntPtr windowHandle,
+            uint message,
+            IntPtr wParam,
+            IntPtr lParam);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
