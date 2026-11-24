@@ -33,61 +33,9 @@ public partial class MainWindow : Window
         };
         _notificationTimer.Tick += OnNotificationTimerTick;
         _notificationTimer.Start();
-
-        Activated += OnWindowActivated;
-        Deactivated += OnWindowDeactivated;
-        DataContextChanged += OnDataContextChanged;
     }
 
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext;
-
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (e.OldValue is MainWindowViewModel oldVm)
-        {
-            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
-        }
-
-        if (e.NewValue is MainWindowViewModel newVm)
-        {
-            newVm.PropertyChanged += OnViewModelPropertyChanged;
-        }
-    }
-
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(MainWindowViewModel.SelectedProject))
-        {
-            ExternalWindowHost.DismissExternalBrowserHoverCards();
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                if (ViewModel.SelectedProject is { } selected)
-                {
-                    var host = FindProjectHost(selected);
-                    host?.NotifyHostWindowActivated();
-                }
-            }, DispatcherPriority.Input);
-        }
-    }
-
-    private void OnWindowActivated(object? sender, EventArgs e)
-    {
-        ExternalWindowHost.DismissExternalBrowserHoverCards();
-        if (DataContext is MainWindowViewModel { SelectedProject: { } selected })
-        {
-            var host = FindProjectHost(selected);
-            host?.NotifyHostWindowActivated();
-        }
-    }
-
-    private void OnWindowDeactivated(object? sender, EventArgs e)
-    {
-        if (DataContext is MainWindowViewModel { SelectedProject: { } selected })
-        {
-            var host = FindProjectHost(selected);
-            host?.NotifyHostWindowDeactivated();
-        }
-    }
 
     private ScrollViewer? _tabsScrollViewer;
 
